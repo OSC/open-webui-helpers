@@ -18,23 +18,23 @@ class Filter:
         __user__: dict = None,
         __metadata__: dict = None,
         __request__: Request = None,
+        __model__: dict = {},
     ) -> dict:
         # Check if request is from WebUI
         interface = __metadata__.get("interface") if __metadata__ else None
         url_path = __request__.url.path if __request__ else "unknown"
         chat_id = __metadata__.get("chat_id") if __metadata__ else None
         user_name = __user__.get("name", "unknown") if __user__ else "anonymous"
-        model = body.get("model", "unknown")
+        model = __model__.get("id") if __model__ else body.get("model", "unknown")
 
-        model_metadata = __metadata__.get("model", {}) if __metadata__ else None
-        idx = model_metadata.get("urlIdx", None) if model_metadata else None
+        idx = __model__.get("urlIdx", None) if __model__ else None
         if idx is not None and __request__ is not None:
             backend_url = __request__.app.state.config.OPENAI_API_BASE_URLS[idx]
             # self.logger.info(f"Backend URL: {backend_url}")
         else:
             backend_url = "unknown"
             self.logger.info(
-                f"Unable to determine model index. model-metadata={model_metadata}"
+                f"Unable to determine model index. model-metadata={__model__}"
             )
 
         self.logger.info(

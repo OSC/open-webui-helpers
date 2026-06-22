@@ -35,6 +35,7 @@ class Filter:
         __user__: dict = None,
         __metadata__: dict = None,
         __request__: Request = None,
+        __model__: dict = {},
     ) -> dict:
         # Check if request is from WebUI
         interface = __metadata__.get("interface") if __metadata__ else None
@@ -44,14 +45,13 @@ class Filter:
             return body
         # self.logger.info("Direct API request")
 
-        model_metadata = __metadata__.get("model", {})
-        idx = model_metadata.get("urlIdx", None)
+        idx = __model__.get("urlIdx", None)
         if idx is not None and __request__ is not None:
             backend_url = __request__.app.state.config.OPENAI_API_BASE_URLS[idx]
             # self.logger.info(f"Backend URL: {backend_url}")
         else:
             self.logger.info(
-                f"Unable to determine model index. model-metadata={model_metadata}"
+                f"Unable to determine model index. model-metadata={__model__}"
             )
         unavailable = HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -75,7 +75,7 @@ class Filter:
             )
             return body
 
-        model = body.get("model", "unknown")
+        model = __model__.get("id") if __model__ else body.get("model", "unknown")
         metric_model = model.replace("/", "-")
         user_name = __user__.get("name", "unknown") if __user__ else "anonymous"
         metric_data = f"""
