@@ -1,6 +1,5 @@
 from pydantic import BaseModel, Field
 from fastapi import Request, HTTPException, status
-from typing import Optional
 import asyncio
 import httpx
 import logging
