@@ -13,4 +13,4 @@ lint: install
 
 .PHONY: test
 test: install
-	pytest
+	python -m pytest
