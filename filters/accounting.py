@@ -12,7 +12,7 @@ async def get_request_account(request: Request, user_id: str, user_name: str) ->
     if len(host_parts) == 4:
         account = host_parts[0].upper()
     member_groups = Groups.get_groups_by_member_id(user_id)
-    group_names = [group.name.upper() for group in member_groups]
+    group_names = [group.name for group in member_groups]
     if account is None:
         accounts = []
         for group in group_names:
