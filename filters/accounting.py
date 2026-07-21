@@ -8,14 +8,22 @@ from open_webui.models.groups import Groups
 async def get_request_account(request: Request, user_id: str, user_name: str) -> str:
     request_host = request.url.hostname
     host_parts = request_host.split(".")
-    if len(host_parts) != 4:
-        raise HTTPException(
+    account = None
+    if len(host_parts) == 4:
+        account = host_parts[0].upper()
+    member_groups = Groups.get_groups_by_member_id(user_id)
+    group_names = [group.name.upper() for group in member_groups]
+    if account is None:
+        accounts = []
+        for group in group_names:
+            if group.startswith("P"):
+                accounts.append(group)
+        if len(accounts) == 0 or len(accounts) > 1:
+            raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 details=f"Request host {request_host} is not valid.  Must be in the format of <project>.<host>.osc.edu"
             )
-    account = host_parts[0].upper()
-    member_groups = Groups.get_groups_by_member_id(user_id)
-    group_names = [group.name.upper() for group in member_groups]
+        account = accounts[0]
     if account not in group_names:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
