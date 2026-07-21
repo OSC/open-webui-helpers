@@ -10,3 +10,7 @@ install: .pip_installed
 .PHONY: lint
 lint: install
 	ruff check .
+
+.PHONY: test
+test: install
+	pytest

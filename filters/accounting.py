@@ -11,7 +11,7 @@ async def get_request_account(request: Request, user_id: str, user_name: str) ->
     account = None
     if len(host_parts) == 4:
         account = host_parts[0].upper()
-    member_groups = Groups.get_groups_by_member_id(user_id)
+    member_groups = await Groups.get_groups_by_member_id(user_id)
     group_names = [group.name for group in member_groups]
     if account is None:
         accounts = []
@@ -21,13 +21,13 @@ async def get_request_account(request: Request, user_id: str, user_name: str) ->
         if len(accounts) == 0 or len(accounts) > 1:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                details=f"Request host {request_host} is not valid.  Must be in the format of <project>.<host>.osc.edu"
+                detail=f"Request host {request_host} is not valid.  Must be in the format of <project>.<host>.osc.edu"
             )
         account = accounts[0]
     if account not in group_names:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            details=f"Account {account} is not valid for user {user_name}"
+            detail=f"Account {account} is not valid for user {user_name}"
         )
     return account
 
@@ -56,7 +56,7 @@ class Filter:
         if not user_name or not user_id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                details="User name and User ID could not be determined"
+                detail="User name and User ID could not be determined"
             )
         _ = await get_request_account(__request__, user_id, user_name)
 
@@ -75,7 +75,7 @@ class Filter:
         if not user_name or not user_id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                details="User name and User ID could not be determined"
+                detail="User name and User ID could not be determined"
             )
         account = await get_request_account(__request__, user_id, user_name)
 
@@ -85,7 +85,7 @@ class Filter:
         if tokens is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                details=f"Request lacks token usage in the response. usage={usage}"
+                detail=f"Request lacks token usage in the response. usage={usage}"
             )
         self.logger.info(
             f"Process token usage. user={user_name} account={account} model={model} tokens={tokens}"
@@ -103,7 +103,7 @@ class Filter:
             if not r.is_success:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    details=f"Unable to query existing accounting metrics. status={r.status_code} body={r.text}"
+                    detail=f"Unable to query existing accounting metrics. status={r.status_code} body={r.text}"
                 )
             metrics = r.json()
 
@@ -166,7 +166,7 @@ class Filter:
             if not r.is_success:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    details=f"Unable to push accounting metric. status={r.status_code} body={r.text}"
+                    detail=f"Unable to push accounting metric. status={r.status_code} body={r.text}"
                 )
             self.logger.info(
                 f"Metric sent: status={r.status_code} body={r.text}"

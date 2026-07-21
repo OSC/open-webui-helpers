@@ -1,1 +1,3 @@
 .pip_installed
+/.venv
+__pycache__
