@@ -4,6 +4,8 @@ from fastapi import Request, HTTPException, status
 import httpx
 import logging
 from open_webui.models.groups import Groups
+from typing import Any
+
 
 async def get_request_account(request: Request, user_id: str, user_name: str) -> str:
     request_host = request.url.hostname
@@ -21,15 +23,47 @@ async def get_request_account(request: Request, user_id: str, user_name: str) ->
         if len(accounts) == 0 or len(accounts) > 1:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Request host {request_host} is not valid.  Must be in the format of <project>.<host>.osc.edu"
+                detail=f"Request host {request_host} is not valid.  Must be in the format of <project>.<host>.osc.edu",
             )
         account = accounts[0]
     if account not in group_names:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Account {account} is not valid for user {user_name}"
+            detail=f"Account {account} is not valid for user {user_name}",
         )
     return account
+
+# Logic from https://github.com/Skyzi000/open-webui-extensions/blob/main/functions/filter/token_usage_display.py
+async def get_usage(body: dict[str, Any]) -> dict[str, Any] | None:
+    usage = body.get("usage")
+    if isinstance(usage, dict) and usage:
+        return usage
+
+    response_message_id = body.get("id")
+
+    messages = body.get("messages")
+    if isinstance(messages, list):
+        # Prefer usage on the completed assistant message.
+        if response_message_id is not None:
+            for m in messages:
+                if not isinstance(m, dict):
+                    continue
+                if m.get("id") != response_message_id:
+                    continue
+                u = m.get("usage")
+                if isinstance(u, dict) and u:
+                    return u
+
+        # Fallback: last message that has usage.
+        for m in reversed(messages):
+            if not isinstance(m, dict):
+                continue
+            u = m.get("usage")
+            if isinstance(u, dict) and u:
+                return u
+
+    return None
+
 
 class Filter:
     class Valves(BaseModel):
@@ -53,12 +87,14 @@ class Filter:
     ) -> dict:
         user_name = (__user__ or {}).get("name")
         user_id = (__user__ or {}).get("id")
+        self.logger.info(f"Found user {user_name} and ID {user_id}")
         if not user_name or not user_id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="User name and User ID could not be determined"
+                detail="User name and User ID could not be determined",
             )
-        _ = await get_request_account(__request__, user_id, user_name)
+        account = await get_request_account(__request__, user_id, user_name)
+        self.logger.info(f"Found account {account}")
 
         return body
 
@@ -75,17 +111,25 @@ class Filter:
         if not user_name or not user_id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="User name and User ID could not be determined"
+                detail="User name and User ID could not be determined",
             )
+        self.logger.info(f"Found user {user_name} and ID {user_id}")
         account = await get_request_account(__request__, user_id, user_name)
+        self.logger.info(f"Found account {account}")
 
         model = __model__.get("id") if __model__ else body.get("model", "unknown")
-        usage = body.get("usage", {})
+        usage = await get_usage(body)
+        self.logger.info(f"Usage: model={model} usage={usage}")
+        if usage is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Unable to get usage from response",
+            )
         tokens = usage.get("total_tokens", None)
         if tokens is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Request lacks token usage in the response. usage={usage}"
+                detail=f"Request lacks token usage in the response. usage={usage}",
             )
         self.logger.info(
             f"Process token usage. user={user_name} account={account} model={model} tokens={tokens}"
@@ -103,7 +147,7 @@ class Filter:
             if not r.is_success:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Unable to query existing accounting metrics. status={r.status_code} body={r.text}"
+                    detail=f"Unable to query existing accounting metrics. status={r.status_code} body={r.text}",
                 )
             metrics = r.json()
 
@@ -117,9 +161,7 @@ class Filter:
                     )
                     continue
                 if job != metric_job:
-                    self.logger.info(
-                        f"Skip metric job {job}"
-                    )
+                    self.logger.info(f"Skip metric job {job}")
                 metric = data.get(metric_name, {})
                 if not metric:
                     self.logger.info(
@@ -142,13 +184,13 @@ class Filter:
                 if metric_value > 0:
                     break
 
-        metric_value = metric_value = int(tokens)
+        metric_value = metric_value + int(tokens)
         self.logger.info(
             f"New metric value. value={metric_value} user={user_name} account={account} model={model} tokens={tokens}"
         )
-        model_bytes = model.encode('utf-8')
+        model_bytes = model.encode("utf-8")
         model_base64 = base64.urlsafe_b64encode(model_bytes)
-        metric_model = model_base64.decode('utf-8')
+        metric_model = model_base64.decode("utf-8")
         metric_data = f"""
 # HELP {metric_name} K8 token accounting record
 # TYPE {metric_name} counter
@@ -156,9 +198,7 @@ class Filter:
 """
         metrics_url = f"{self.valves.pushgateway_url}/metrics/job/{metric_job}/model@base64/{metric_model}/account/{account}/user/{user_name}"
         metrics_header = {"Content-Type": "text/plain"}
-        self.logger.info(
-            f"Send metric to {metrics_url}"
-        )
+        self.logger.info(f"Send metric to {metrics_url}")
         async with httpx.AsyncClient() as client:
             r = await client.post(
                 metrics_url, content=metric_data, headers=metrics_header
@@ -166,10 +206,7 @@ class Filter:
             if not r.is_success:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Unable to push accounting metric. status={r.status_code} body={r.text}"
+                    detail=f"Unable to push accounting metric. status={r.status_code} body={r.text}",
                 )
-            self.logger.info(
-                f"Metric sent: status={r.status_code} body={r.text}"
-            )
+            self.logger.info(f"Metric sent: status={r.status_code} body={r.text}")
         return body
-
