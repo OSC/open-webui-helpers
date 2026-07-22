@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field
 from fastapi import Request
+from open_webui.models.config import Config
 import logging
 
 
@@ -25,8 +26,9 @@ class Filter:
         model = __model__.get("id") if __model__ else body.get("model", "unknown")
 
         idx = __model__.get("urlIdx", None) if __model__ else None
-        if idx is not None and __request__ is not None:
-            backend_url = __request__.app.state.config.OPENAI_API_BASE_URLS[idx]
+        backends = await Config.get('openai.api_base_urls') or []
+        if idx is not None and len(backends) > 0:
+            backend_url = backends[idx]
             # self.logger.info(f"Backend URL: {backend_url}")
         else:
             backend_url = "unknown"

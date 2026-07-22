@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field
 from fastapi import Request, HTTPException, status
+from open_webui.models.config import Config
 import asyncio
 import httpx
 import logging
@@ -45,8 +46,9 @@ class Filter:
         # self.logger.info("Direct API request")
 
         idx = __model__.get("urlIdx", None)
-        if idx is not None and __request__ is not None:
-            backend_url = __request__.app.state.config.OPENAI_API_BASE_URLS[idx]
+        backends = await Config.get('openai.api_base_urls') or []
+        if idx is not None and len(backends) > 0:
+            backend_url = backends[idx]
             # self.logger.info(f"Backend URL: {backend_url}")
         else:
             self.logger.info(

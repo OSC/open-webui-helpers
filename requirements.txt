@@ -2,4 +2,5 @@ ruff==0.15.18
 pytest==9.1.1
 pytest-mock==3.15.1
 pytest-asyncio==1.4.0
-open-webui==0.9.4
+pytest-env==1.7.0
+open-webui==0.10.2
