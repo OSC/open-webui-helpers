@@ -117,9 +117,10 @@ class Filter:
         account = await get_request_account(__request__, user_id, user_name)
         self.logger.info(f"Found account {account}")
 
+        chat_id = __metadata__.get("chat_id") or body.get("id", "unknown")
         model = __model__.get("id") if __model__ else body.get("model", "unknown")
         usage = await get_usage(body)
-        self.logger.info(f"Usage: model={model} usage={usage}")
+        self.logger.info(f"Usage: chat-id={chat_id} model={model} usage={usage}")
         if usage is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -132,28 +133,31 @@ class Filter:
                 detail=f"Request lacks token usage in the response. usage={usage}",
             )
         self.logger.info(
-            f"Process token usage. user={user_name} account={account} model={model} tokens={tokens}"
+            f"Process token usage. id={chat_id} user={user_name} account={account} model={model} tokens={tokens}"
         )
 
-        headers = {
-            "Content-Type": "application/json",
-        }
-        metric_job = "k8-token-accounting"
-        metric_name = "osc_k8_token_accounting"
-        metrics_query_url = f"{self.valves.pushgateway_url}/api/v1/metrics"
-        metrics = None
-        async with httpx.AsyncClient() as client:
-            r = await client.get(metrics_query_url, headers=headers)
-            if not r.is_success:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Unable to query existing accounting metrics. status={r.status_code} body={r.text}",
-                )
-            metrics = r.json()
+        # headers = {
+        #     "Content-Type": "application/json",
+        # }
+        metric_job = "accounting-tokens"
+        metric_name = "osc_k8_accounting_tokens"
+        # metrics_query_url = f"{self.valves.pushgateway_url}/api/v1/metrics"
+        metrics = {}
+        # Logic to query counter for increment left but unused
+        # async with httpx.AsyncClient() as client:
+        #     r = await client.get(metrics_query_url, headers=headers)
+        #     if not r.is_success:
+        #         raise HTTPException(
+        #             status_code=status.HTTP_400_BAD_REQUEST,
+        #             detail=f"Unable to query existing accounting metrics. status={r.status_code} body={r.text}",
+        #         )
+        #    metrics = r.json()
 
         metric_value = 0
+        # Logic to query counter for increment left but unused
         if len(metrics.get("data", [])) > 0:
             for data in metrics["data"]:
+                break
                 job = data.get("labels", {}).get("job", None)
                 if job is None:
                     self.logger.info(
@@ -184,19 +188,15 @@ class Filter:
                 if metric_value > 0:
                     break
 
-        metric_value = metric_value + int(tokens)
-        self.logger.info(
-            f"New metric value. value={metric_value} user={user_name} account={account} model={model} tokens={tokens}"
-        )
         model_bytes = model.encode("utf-8")
         model_base64 = base64.urlsafe_b64encode(model_bytes)
         metric_model = model_base64.decode("utf-8")
         metric_data = f"""
 # HELP {metric_name} K8 token accounting record
-# TYPE {metric_name} counter
-{metric_name} {metric_value}
+# TYPE {metric_name} gauge
+{metric_name} {tokens}
 """
-        metrics_url = f"{self.valves.pushgateway_url}/metrics/job/{metric_job}/model@base64/{metric_model}/account/{account}/user/{user_name}"
+        metrics_url = f"{self.valves.pushgateway_url}/metrics/job/{metric_job}/instance/{chat_id}/model@base64/{metric_model}/account/{account}/user/{user_name}"
         metrics_header = {"Content-Type": "text/plain"}
         self.logger.info(f"Send metric to {metrics_url}")
         async with httpx.AsyncClient() as client:
