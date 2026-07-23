@@ -330,3 +330,65 @@ async def test_get_metrics_client_not_successful(httpx_mock):
             model="gpt-4",
             instance="gpt-4-PZS0708-username"
         )
+
+
+async def test_send_metrics_success(httpx_mock):
+    """Test send_metrics when the POST request is successful"""
+    # Configure httpx_mock to return a successful response
+    httpx_mock.add_response(
+        url="http://pushgateway.prometheus.svc:9091/metrics/job/k8-token-accounting/instance/gpt-4-PZS0708-username",
+        status_code=200,
+        text="OK"
+    )
+
+    # Create filter instance
+    filter_instance = accounting.Filter()
+
+    # Call send_metrics
+    await filter_instance.send_metrics(
+        metric_value=150,
+        requests_value=5,
+        user_name="username",
+        account="PZS0708",
+        model="gpt-4",
+        instance="gpt-4-PZS0708-username"
+    )
+
+    # Verify that the POST request was made with the correct data
+    assert len(httpx_mock.get_requests()) == 1
+    request = httpx_mock.get_requests()[0]
+    assert request.method == "POST"
+    assert request.url == "http://pushgateway.prometheus.svc:9091/metrics/job/k8-token-accounting/instance/gpt-4-PZS0708-username"
+    assert request.headers["Content-Type"] == "text/plain"
+    # Check that the payload contains the expected metric data (without strict whitespace matching)
+    payload = request.content.decode()
+    assert "# HELP osc_k8_accounting_tokens_total K8 token accounting record" in payload
+    assert "# TYPE osc_k8_accounting_tokens_total counter" in payload
+    assert 'osc_k8_accounting_tokens_total{model="gpt-4",account="PZS0708",user="username"} 150' in payload
+    assert "# HELP osc_k8_accounting_requests_total K8 requests accounting record" in payload
+    assert "# TYPE osc_k8_accounting_requests_total counter" in payload
+    assert 'osc_k8_accounting_requests_total{model="gpt-4",account="PZS0708",user="username"} 5' in payload
+
+
+async def test_send_metrics_failure(httpx_mock):
+    """Test send_metrics when the POST request fails"""
+    # Configure httpx_mock to return an unsuccessful response
+    httpx_mock.add_response(
+        url="http://pushgateway.prometheus.svc:9091/metrics/job/k8-token-accounting/instance/gpt-4-PZS0708-username",
+        status_code=500,
+        text="Internal Server Error"
+    )
+
+    # Create filter instance
+    filter_instance = accounting.Filter()
+
+    # Expect HTTPException to be raised
+    with pytest.raises(HTTPException, match="Unable to push accounting metric"):
+        await filter_instance.send_metrics(
+            metric_value=150,
+            requests_value=5,
+            user_name="username",
+            account="PZS0708",
+            model="gpt-4",
+            instance="gpt-4-PZS0708-username"
+        )
