@@ -80,3 +80,111 @@ async def test_get_request_account_no_url_multiple_projects(mocker):
 
     with pytest.raises(HTTPException, match="Must be in the format of"):
         _ = await accounting.get_request_account(request, "user-id", "username")
+
+
+async def test_get_usage_top_level_usage(mocker):
+    """Test that usage at the top level of body is returned correctly"""
+    body = {
+        "usage": {
+            "prompt_tokens": 100,
+            "completion_tokens": 50,
+            "total_tokens": 150
+        }
+    }
+
+    result = await accounting.get_usage(body)
+
+    assert result == {
+        "prompt_tokens": 100,
+        "completion_tokens": 50,
+        "total_tokens": 150
+    }
+
+
+async def test_get_usage_message_usage(mocker):
+    """Test that usage inside a message item is returned correctly"""
+    body = {
+        "messages": [
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "Hi there!", "usage": {
+                "prompt_tokens": 120,
+                "completion_tokens": 80,
+                "total_tokens": 200
+            }}
+        ]
+    }
+
+    result = await accounting.get_usage(body)
+
+    assert result == {
+        "prompt_tokens": 120,
+        "completion_tokens": 80,
+        "total_tokens": 200
+    }
+
+
+async def test_get_usage_multiple_messages_with_usage(mocker):
+    """Test that usage from the last message with usage is returned when multiple messages exist"""
+    body = {
+        "messages": [
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "Hi there!", "usage": {
+                "prompt_tokens": 120,
+                "completion_tokens": 80,
+                "total_tokens": 200
+            }},
+            {"role": "user", "content": "How are you?"},
+            {"role": "assistant", "content": "I'm good!", "usage": {
+                "prompt_tokens": 150,
+                "completion_tokens": 90,
+                "total_tokens": 240
+            }}
+        ]
+    }
+
+    result = await accounting.get_usage(body)
+
+    assert result == {
+        "prompt_tokens": 150,
+        "completion_tokens": 90,
+        "total_tokens": 240
+    }
+
+
+async def test_get_usage_no_usage_found(mocker):
+    """Test that None is returned when no usage is found"""
+    body = {
+        "messages": [
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "Hi there!"}
+        ]
+    }
+
+    result = await accounting.get_usage(body)
+
+    assert result is None
+
+
+async def test_get_usage_with_response_message_id(mocker):
+    """Test that usage from the specific response message ID is preferred"""
+    body = {
+        "id": "msg_123",
+        "messages": [
+            {"role": "user", "content": "Hello"},
+            {"id": "msg_123", "role": "assistant", "content": "Hi there!", "usage": {
+                "prompt_tokens": 120,
+                "completion_tokens": 80,
+                "total_tokens": 200
+            }},
+            {"role": "user", "content": "How are you?"},
+            {"role": "assistant", "content": "I'm good!"}
+        ]
+    }
+
+    result = await accounting.get_usage(body)
+
+    assert result == {
+        "prompt_tokens": 120,
+        "completion_tokens": 80,
+        "total_tokens": 200
+    }
