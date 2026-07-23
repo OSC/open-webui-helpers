@@ -79,6 +79,7 @@ class Filter:
     def __init__(self):
         self.valves = self.Valves()
         self.logger = logging.getLogger("accounting")
+        self.error_prefix = "process=accounting-error"
         self.metric_job = "k8-token-accounting"
         self.metric_name = "osc_k8_accounting_tokens_total"
         self.requests_metric_name = "osc_k8_accounting_requests_total"
@@ -108,13 +109,13 @@ class Filter:
             for data in metrics["data"]:
                 job = data.get("labels", {}).get("job", None)
                 if job is None:
-                    self.logger.info(
+                    self.logger.debug(
                         f"job value not found in metric data, skip.  data={data}"
                     )
                     continue
                 metric_instance = data.get("labels", {}).get("instance", None)
                 if job != self.metric_job and metric_instance != instance:
-                    self.logger.info(
+                    self.logger.debug(
                         f"Skip metric job {job} instance {metric_instance}"
                     )
                     continue
@@ -122,14 +123,14 @@ class Filter:
                 if metric_data:
                     metric = metric_data.get("metrics", [])[0]
                     metric_value = int(metric.get("value", 0))
-                    self.logger.info(
+                    self.logger.debug(
                         f"Existing metric value. value={metric_value} user={user_name} account={account} model={model}"
                     )
                 requests_data = data.get(self.requests_metric_name, {})
                 if requests_data:
                     requests = requests_data.get("metrics", [])[0]
                     requests_value = int(requests.get("value", 0))
-                    self.logger.info(
+                    self.logger.debug(
                         f"Existing requests value. value={requests_value} user={user_name} account={account} model={model}"
                     )
                 if metric_data and requests_data:
@@ -235,7 +236,7 @@ class Filter:
             if tokens is None:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Request lacks token usage in the response. usage={usage}",
+                    detail=f"Request lacks token usage in the response: {usage}",
                 )
             self.logger.info(
                 f"Process token usage. id={chat_id} user={user_name} account={account} model={model} tokens={tokens}"
@@ -266,8 +267,10 @@ class Filter:
                 self.logger.info(f"Metrics took {elapsed_time}")
         except Timeout:
             self.logger.error(
-                f"Timeout waiting for lock id={chat_id} user={user_name} account={account} model={model}"
+                f"{self.error_prefix} msg=\"Timeout waiting for lock\" id={chat_id} user={user_name} account={account} model={model}"
             )
+        except HTTPException as e:
+            self.logger.error(f"{self.error_prefix} msg=\"{e.detail}\"")
         except Exception as e:
-            self.logger.exception(f"An unhandled exception occurred {e}")
+            self.logger.exception(f"{self.error_prefix} msg=\"An unhandled exception occurred {e}\"")
         return body
