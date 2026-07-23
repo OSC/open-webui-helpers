@@ -188,3 +188,145 @@ async def test_get_usage_with_response_message_id(mocker):
         "completion_tokens": 80,
         "total_tokens": 200
     }
+
+
+async def test_get_metrics_both_metrics_found(httpx_mock):
+    """Test get_metrics when both metrics are found"""
+    # Configure httpx_mock to return a successful response
+    httpx_mock.add_response(
+        url="http://pushgateway.prometheus.svc:9091/api/v1/metrics",
+        json={
+            "data": [
+                {
+                    "labels": {
+                        "job": "k8-token-accounting",
+                        "instance": "gpt-4-PZS0708-username"
+                    },
+                    "osc_k8_accounting_tokens_total": {
+                        "metrics": [
+                            {"value": "150"}
+                        ]
+                    },
+                    "osc_k8_accounting_requests_total": {
+                        "metrics": [
+                            {"value": "5"}
+                        ]
+                    }
+                }
+            ]
+        },
+        status_code=200
+    )
+
+    # Create filter instance
+    filter_instance = accounting.Filter()
+
+    # Call get_metrics
+    result = await filter_instance.get_metrics(
+        user_name="username",
+        account="PZS0708",
+        model="gpt-4",
+        instance="gpt-4-PZS0708-username"
+    )
+
+    # Assert result
+    assert result == (150, 5)
+
+
+async def test_get_metrics_only_metric_name_found(httpx_mock):
+    """Test get_metrics when only metric_name is found"""
+    # Configure httpx_mock to return a successful response with only one metric
+    httpx_mock.add_response(
+        url="http://pushgateway.prometheus.svc:9091/api/v1/metrics",
+        json={
+            "data": [
+                {
+                    "labels": {
+                        "job": "k8-token-accounting",
+                        "instance": "gpt-4-PZS0708-username"
+                    },
+                    "osc_k8_accounting_tokens_total": {
+                        "metrics": [
+                            {"value": "200"}
+                        ]
+                    }
+                    # Missing osc_k8_accounting_requests_total
+                }
+            ]
+        },
+        status_code=200
+    )
+
+    # Create filter instance
+    filter_instance = accounting.Filter()
+
+    # Call get_metrics
+    result = await filter_instance.get_metrics(
+        user_name="username",
+        account="PZS0708",
+        model="gpt-4",
+        instance="gpt-4-PZS0708-username"
+    )
+
+    # Assert result - requests_value should default to 0
+    assert result == (200, 0)
+
+
+async def test_get_metrics_no_metrics_found(httpx_mock):
+    """Test get_metrics when no metrics are found"""
+    # Configure httpx_mock to return a successful response with no matching metrics
+    httpx_mock.add_response(
+        url="http://pushgateway.prometheus.svc:9091/api/v1/metrics",
+        json={
+            "data": [
+                {
+                    "labels": {
+                        "job": "other-job",
+                        "instance": "other-instance"
+                    },
+                    "some_other_metric": {
+                        "metrics": [
+                            {"value": "100"}
+                        ]
+                    }
+                }
+            ]
+        },
+        status_code=200
+    )
+
+    # Create filter instance
+    filter_instance = accounting.Filter()
+
+    # Call get_metrics
+    result = await filter_instance.get_metrics(
+        user_name="username",
+        account="PZS0708",
+        model="gpt-4",
+        instance="gpt-4-PZS0708-username"
+    )
+
+    # Assert result - both should default to 0
+    assert result == (0, 0)
+
+
+async def test_get_metrics_client_not_successful(httpx_mock):
+    """Test get_metrics when the client.get call is not successful"""
+    # Configure httpx_mock to return an unsuccessful response
+    httpx_mock.add_response(
+        url="http://pushgateway.prometheus.svc:9091/api/v1/metrics",
+        status_code=500,
+        text="Internal Server Error"
+    )
+
+    # Create filter instance
+    filter_instance = accounting.Filter()
+
+    # Expect HTTPException to be raised
+    with pytest.raises(HTTPException, match="Unable to query existing accounting metrics"):
+        await filter_instance.get_metrics(
+            user_name="username",
+            account="PZS0708",
+            model="gpt-4",
+            instance="gpt-4-PZS0708-username"
+        )
