@@ -604,3 +604,497 @@ async def test_inlet_get_account_fails(mocker):
 
     # Verify get_request_account was called
     mock_get_request_account.assert_called_once_with(request, "test_user_id", "test_user")
+
+
+async def test_outlet_successful_call(mocker, caplog):
+    """Test successful outlet call with body returned"""
+    # Mock external functions
+    mock_get_request_account = mocker.patch("filters.accounting.get_request_account")
+    mock_get_usage = mocker.patch("filters.accounting.get_usage")
+    mock_get_metrics = mocker.patch.object(accounting.Filter, "get_metrics")
+    mock_send_metrics = mocker.patch.object(accounting.Filter, "send_metrics")
+
+    # Set up mock request
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/api/v1/chat",
+        "headers": [
+            (b"host", b"PZS0708.chat.example.com")
+        ],
+    }
+    request = Request(scope=scope)
+
+    # Set up user data
+    user_data = {
+        "name": "test_user",
+        "id": "test_user_id"
+    }
+
+    # Set up metadata
+    metadata = {
+        "chat_id": "chat_123"
+    }
+
+    # Set up model data
+    model_data = {
+        "id": "gpt-4"
+    }
+
+    # Create filter instance
+    filter_instance = accounting.Filter()
+
+    # Test body with usage data
+    body = {
+        "id": "msg_123",
+        "model": "gpt-4",
+        "messages": [
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "Hi there!", "usage": {
+                "prompt_tokens": 120,
+                "completion_tokens": 80,
+                "total_tokens": 200
+            }}
+        ]
+    }
+
+    # Mock external functions
+    mock_get_request_account.return_value = "PZS0708"
+    mock_get_usage.return_value = {
+        "prompt_tokens": 120,
+        "completion_tokens": 80,
+        "total_tokens": 200
+    }
+    mock_get_metrics.return_value = (100, 5)  # (metric_value, requests_value)
+    mock_send_metrics.return_value = None
+
+    # Call outlet
+    with caplog.at_level("INFO"):
+        result = await filter_instance.outlet(
+            body=body,
+            __user__=user_data,
+            __metadata__=metadata,
+            __request__=request,
+            __model__=model_data
+        )
+
+    # Verify the result is the same as the input body
+    assert result == body
+
+    # Verify all external functions were called
+    mock_get_request_account.assert_called_once_with(request, "test_user_id", "test_user")
+    mock_get_usage.assert_called_once_with(body)
+    mock_get_metrics.assert_called_once_with(
+        user_name="test_user",
+        account="PZS0708",
+        model="gpt-4",
+        instance="gpt-4-PZS0708-test_user"
+    )
+    mock_send_metrics.assert_called_once_with(
+        metric_value=300,  # 100 + 200
+        requests_value=6,   # 5 + 1
+        user_name="test_user",
+        account="PZS0708",
+        model="gpt-4",
+        instance="gpt-4-PZS0708-test_user"
+    )
+
+
+async def test_outlet_user_missing_info(mocker, caplog):
+    """Test outlet when user name or user id is missing"""
+    # Mock get_request_account (should not be called)
+    mock_get_request_account = mocker.patch("filters.accounting.get_request_account")
+    mock_get_usage = mocker.patch("filters.accounting.get_usage")
+
+    # Set up mock request
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/api/v1/chat",
+        "headers": [
+            (b"host", b"PZS0708.chat.example.com")
+        ],
+    }
+    request = Request(scope=scope)
+
+    # Set up incomplete user data (missing name)
+    user_data = {
+        "id": "test_user_id"
+    }
+
+    # Set up metadata
+    metadata = {
+        "chat_id": "chat_123"
+    }
+
+    # Set up model data
+    model_data = {
+        "id": "gpt-4"
+    }
+
+    # Create filter instance
+    filter_instance = accounting.Filter()
+
+    # Test body
+    body = {
+        "model": "gpt-4",
+        "messages": [{"role": "user", "content": "Hello"}]
+    }
+
+    # Call outlet - should NOT raise HTTPException (caught and logged)
+    with caplog.at_level("ERROR"):
+        result = await filter_instance.outlet(
+            body=body,
+            __user__=user_data,
+            __metadata__=metadata,
+            __request__=request,
+            __model__=model_data
+        )
+
+    # Verify the result is the same as the input body (returned normally)
+    assert result == body
+
+    # Verify get_request_account was not called
+    mock_get_request_account.assert_not_called()
+    # Verify get_usage was not called
+    mock_get_usage.assert_not_called()
+
+    # Verify error message was logged
+    assert "User name and User ID could not be determined" in caplog.text
+
+
+async def test_outlet_get_account_fails(mocker, caplog):
+    """Test outlet when getting account fails"""
+    # Mock get_request_account to raise an exception
+    mock_get_request_account = mocker.patch("filters.accounting.get_request_account")
+    mock_get_usage = mocker.patch("filters.accounting.get_usage")
+
+    # Set up mock request
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/api/v1/chat",
+        "headers": [
+            (b"host", b"PZS0708.chat.example.com")
+        ],
+    }
+    request = Request(scope=scope)
+
+    # Set up user data
+    user_data = {
+        "name": "test_user",
+        "id": "test_user_id"
+    }
+
+    # Set up metadata
+    metadata = {
+        "chat_id": "chat_123"
+    }
+
+    # Set up model data
+    model_data = {
+        "id": "gpt-4"
+    }
+
+    # Create filter instance
+    filter_instance = accounting.Filter()
+
+    # Test body
+    body = {
+        "model": "gpt-4",
+        "messages": [{"role": "user", "content": "Hello"}]
+    }
+
+    # Mock get_request_account to raise an exception
+    mock_get_request_account.side_effect = HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Account not valid"
+    )
+
+    # Call outlet - should NOT raise HTTPException (caught and logged)
+    with caplog.at_level("ERROR"):
+        result = await filter_instance.outlet(
+            body=body,
+            __user__=user_data,
+            __metadata__=metadata,
+            __request__=request,
+            __model__=model_data
+        )
+
+    # Verify the result is the same as the input body (returned normally)
+    assert result == body
+
+    # Verify get_request_account was called
+    mock_get_request_account.assert_called_once_with(request, "test_user_id", "test_user")
+    # Verify get_usage was not called
+    mock_get_usage.assert_not_called()
+
+    # Verify error message was logged
+    assert "Account not valid" in caplog.text
+
+
+async def test_outlet_usage_missing(mocker, caplog):
+    """Test outlet when usage is missing"""
+    # Mock external functions
+    mock_get_request_account = mocker.patch("filters.accounting.get_request_account")
+    mock_get_usage = mocker.patch("filters.accounting.get_usage")
+
+    # Set up mock request
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/api/v1/chat",
+        "headers": [
+            (b"host", b"PZS0708.chat.example.com")
+        ],
+    }
+    request = Request(scope=scope)
+
+    # Set up user data
+    user_data = {
+        "name": "test_user",
+        "id": "test_user_id"
+    }
+
+    # Set up metadata
+    metadata = {
+        "chat_id": "chat_123"
+    }
+
+    # Set up model data
+    model_data = {
+        "id": "gpt-4"
+    }
+
+    # Create filter instance
+    filter_instance = accounting.Filter()
+
+    # Test body without usage
+    body = {
+        "model": "gpt-4",
+        "messages": [{"role": "user", "content": "Hello"}]
+    }
+
+    # Mock get_usage to return None
+    mock_get_usage.return_value = None
+
+    # Mock get_request_account to return a valid account
+    mock_get_request_account.return_value = "PZS0708"
+
+    # Call outlet - should NOT raise HTTPException (caught and logged)
+    with caplog.at_level("ERROR"):
+        result = await filter_instance.outlet(
+            body=body,
+            __user__=user_data,
+            __metadata__=metadata,
+            __request__=request,
+            __model__=model_data
+        )
+
+    # Verify the result is the same as the input body (returned normally)
+    assert result == body
+
+    # Verify get_request_account was called
+    mock_get_request_account.assert_called_once_with(request, "test_user_id", "test_user")
+    # Verify get_usage was called
+    mock_get_usage.assert_called_once_with(body)
+
+    # Verify error message was logged
+    assert "Unable to get usage from response" in caplog.text
+
+
+async def test_outlet_get_metrics_fails(mocker, caplog):
+    """Test outlet when get_metrics fails"""
+    # Mock external functions
+    mock_get_request_account = mocker.patch("filters.accounting.get_request_account")
+    mock_get_usage = mocker.patch("filters.accounting.get_usage")
+    mock_get_metrics = mocker.patch.object(accounting.Filter, "get_metrics")
+    mock_send_metrics = mocker.patch.object(accounting.Filter, "send_metrics")
+
+    # Set up mock request
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/api/v1/chat",
+        "headers": [
+            (b"host", b"PZS0708.chat.example.com")
+        ],
+    }
+    request = Request(scope=scope)
+
+    # Set up user data
+    user_data = {
+        "name": "test_user",
+        "id": "test_user_id"
+    }
+
+    # Set up metadata
+    metadata = {
+        "chat_id": "chat_123"
+    }
+
+    # Set up model data
+    model_data = {
+        "id": "gpt-4"
+    }
+
+    # Create filter instance
+    filter_instance = accounting.Filter()
+
+    # Test body with usage data
+    body = {
+        "id": "msg_123",
+        "model": "gpt-4",
+        "messages": [
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "Hi there!", "usage": {
+                "prompt_tokens": 120,
+                "completion_tokens": 80,
+                "total_tokens": 200
+            }}
+        ]
+    }
+
+    # Mock external functions
+    mock_get_request_account.return_value = "PZS0708"
+    mock_get_usage.return_value = {
+        "prompt_tokens": 120,
+        "completion_tokens": 80,
+        "total_tokens": 200
+    }
+    # Mock get_metrics to raise an exception
+    mock_get_metrics.side_effect = HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail="Database connection failed"
+    )
+
+    # Call outlet - should NOT raise HTTPException (caught and logged)
+    with caplog.at_level("ERROR"):
+        result = await filter_instance.outlet(
+            body=body,
+            __user__=user_data,
+            __metadata__=metadata,
+            __request__=request,
+            __model__=model_data
+        )
+
+    # Verify the result is the same as the input body (returned normally)
+    assert result == body
+
+    # Verify get_request_account was called
+    mock_get_request_account.assert_called_once_with(request, "test_user_id", "test_user")
+    # Verify get_usage was called
+    mock_get_usage.assert_called_once_with(body)
+    # Verify get_metrics was called
+    mock_get_metrics.assert_called_once_with(
+        user_name="test_user",
+        account="PZS0708",
+        model="gpt-4",
+        instance="gpt-4-PZS0708-test_user"
+    )
+    # Verify send_metrics was not called
+    mock_send_metrics.assert_not_called()
+
+    # Verify error message was logged
+    assert "Database connection failed" in caplog.text
+
+
+async def test_outlet_send_metrics_fails(mocker, caplog):
+    """Test outlet when send_metrics fails"""
+    # Mock external functions
+    mock_get_request_account = mocker.patch("filters.accounting.get_request_account")
+    mock_get_usage = mocker.patch("filters.accounting.get_usage")
+    mock_get_metrics = mocker.patch.object(accounting.Filter, "get_metrics")
+    mock_send_metrics = mocker.patch.object(accounting.Filter, "send_metrics")
+
+    # Set up mock request
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/api/v1/chat",
+        "headers": [
+            (b"host", b"PZS0708.chat.example.com")
+        ],
+    }
+    request = Request(scope=scope)
+
+    # Set up user data
+    user_data = {
+        "name": "test_user",
+        "id": "test_user_id"
+    }
+
+    # Set up metadata
+    metadata = {
+        "chat_id": "chat_123"
+    }
+
+    # Set up model data
+    model_data = {
+        "id": "gpt-4"
+    }
+
+    # Create filter instance
+    filter_instance = accounting.Filter()
+
+    # Test body with usage data
+    body = {
+        "id": "msg_123",
+        "model": "gpt-4",
+        "messages": [
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "Hi there!", "usage": {
+                "prompt_tokens": 120,
+                "completion_tokens": 80,
+                "total_tokens": 200
+            }}
+        ]
+    }
+
+    # Mock external functions
+    mock_get_request_account.return_value = "PZS0708"
+    mock_get_usage.return_value = {
+        "prompt_tokens": 120,
+        "completion_tokens": 80,
+        "total_tokens": 200
+    }
+    mock_get_metrics.return_value = (100, 5)  # (metric_value, requests_value)
+    # Mock send_metrics to raise an exception
+    mock_send_metrics.side_effect = HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail="Pushgateway connection failed"
+    )
+
+    # Call outlet - should not raise exception but log error
+    with caplog.at_level("ERROR"):
+        result = await filter_instance.outlet(
+            body=body,
+            __user__=user_data,
+            __metadata__=metadata,
+            __request__=request,
+            __model__=model_data
+        )
+
+    # Verify the result is the same as the input body
+    assert result == body
+
+    # Verify all external functions were called
+    mock_get_request_account.assert_called_once_with(request, "test_user_id", "test_user")
+    mock_get_usage.assert_called_once_with(body)
+    mock_get_metrics.assert_called_once_with(
+        user_name="test_user",
+        account="PZS0708",
+        model="gpt-4",
+        instance="gpt-4-PZS0708-test_user"
+    )
+    mock_send_metrics.assert_called_once_with(
+        metric_value=300,  # 100 + 200
+        requests_value=6,   # 5 + 1
+        user_name="test_user",
+        account="PZS0708",
+        model="gpt-4",
+        instance="gpt-4-PZS0708-test_user"
+    )
+
+    # Verify error message was logged
+    assert "Pushgateway connection failed" in caplog.text
