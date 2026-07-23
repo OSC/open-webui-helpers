@@ -14,7 +14,7 @@ class Filter:
             description="The header that determines if waiting for model",
         )
         wait_duration: int = Field(
-            default=180, description="How long to wait for model to become available"
+            default=300, description="How long to wait for model to become available"
         )
         wait_users: list = Field(
             default=["oscchat"], description="List of users to enforce waiting."
