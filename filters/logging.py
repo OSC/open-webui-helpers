@@ -26,7 +26,7 @@ class Filter:
         model = __model__.get("id") if __model__ else body.get("model", "unknown")
 
         idx = __model__.get("urlIdx", None) if __model__ else None
-        backends = await Config.get('openai.api_base_urls') or []
+        backends = await Config.get("openai.api_base_urls") or []
         if idx is not None and len(backends) > 0:
             backend_url = backends[idx]
             # self.logger.info(f"Backend URL: {backend_url}")
@@ -41,4 +41,3 @@ class Filter:
         )
 
         return body
-

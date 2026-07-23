@@ -46,7 +46,7 @@ class Filter:
         # self.logger.info("Direct API request")
 
         idx = __model__.get("urlIdx", None)
-        backends = await Config.get('openai.api_base_urls') or []
+        backends = await Config.get("openai.api_base_urls") or []
         if idx is not None and len(backends) > 0:
             backend_url = backends[idx]
             # self.logger.info(f"Backend URL: {backend_url}")
@@ -160,4 +160,3 @@ dynamo_pending_request{{model="{metric_model}",namespace="{self.valves.k8_namesp
         # print(f"base_url={base_url} path_name={path_name}")
 
         # return body
-
