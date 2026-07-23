@@ -1,7 +1,7 @@
 from filters import accounting
 
 import pytest
-from fastapi import Request, HTTPException
+from fastapi import Request, HTTPException, status
 from open_webui.models.groups import Groups, GroupModel
 
 async def test_get_request_account_valid(mocker):
@@ -392,3 +392,215 @@ async def test_send_metrics_failure(httpx_mock):
             model="gpt-4",
             instance="gpt-4-PZS0708-username"
         )
+
+
+async def test_inlet_successful_call(mocker):
+    """Test successful inlet call with body returned"""
+    # Mock the get_request_account function
+    mock_get_request_account = mocker.patch("filters.accounting.get_request_account")
+
+    # Set up mock request
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/api/v1/chat",
+        "headers": [
+            (b"host", b"PZS0708.chat.example.com")
+        ],
+    }
+    request = Request(scope=scope)
+
+    # Set up user data
+    user_data = {
+        "name": "test_user",
+        "id": "test_user_id"
+    }
+
+    # Set up model data
+    model_data = {
+        "id": "gpt-4"
+    }
+
+    # Create filter instance
+    filter_instance = accounting.Filter()
+
+    # Test body
+    body = {
+        "model": "gpt-4",
+        "messages": [{"role": "user", "content": "Hello"}]
+    }
+
+    # Mock get_request_account to return a valid account
+    mock_get_request_account.return_value = "PZS0708"
+
+    # Call inlet
+    result = await filter_instance.inlet(
+        body=body,
+        __user__=user_data,
+        __request__=request,
+        __model__=model_data
+    )
+
+    # Verify the result is the same as the input body
+    assert result == body
+    # Verify get_request_account was called
+    mock_get_request_account.assert_called_once_with(request, "test_user_id", "test_user")
+
+
+async def test_inlet_stream_request_modified(mocker):
+    """Test inlet with stream request where body is modified"""
+    # Mock the get_request_account function
+    mock_get_request_account = mocker.patch("filters.accounting.get_request_account")
+
+    # Set up mock request
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/api/v1/chat",
+        "headers": [
+            (b"host", b"PZS0708.chat.example.com")
+        ],
+    }
+    request = Request(scope=scope)
+
+    # Set up user data
+    user_data = {
+        "name": "test_user",
+        "id": "test_user_id"
+    }
+
+    # Set up model data
+    model_data = {
+        "id": "gpt-4"
+    }
+
+    # Create filter instance
+    filter_instance = accounting.Filter()
+
+    # Test body with stream enabled but without include_usage
+    body = {
+        "model": "gpt-4",
+        "stream": True,
+        "messages": [{"role": "user", "content": "Hello"}]
+    }
+
+    # Mock get_request_account to return a valid account
+    mock_get_request_account.return_value = "PZS0708"
+
+    # Call inlet
+    result = await filter_instance.inlet(
+        body=body,
+        __user__=user_data,
+        __request__=request,
+        __model__=model_data
+    )
+
+    # Verify that stream_options was added to the body
+    assert result["stream"] is True
+    assert "stream_options" in result
+    assert result["stream_options"]["include_usage"] is True
+    # Verify get_request_account was called
+    mock_get_request_account.assert_called_once_with(request, "test_user_id", "test_user")
+
+
+async def test_inlet_user_missing_info(mocker):
+    """Test inlet when user name or user id is missing"""
+    # Mock the get_request_account function (should not be called)
+    mock_get_request_account = mocker.patch("filters.accounting.get_request_account")
+
+    # Set up mock request
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/api/v1/chat",
+        "headers": [
+            (b"host", b"PZS0708.chat.example.com")
+        ],
+    }
+    request = Request(scope=scope)
+
+    # Set up incomplete user data (missing name)
+    user_data = {
+        "id": "test_user_id"
+    }
+
+    # Set up model data
+    model_data = {
+        "id": "gpt-4"
+    }
+
+    # Create filter instance
+    filter_instance = accounting.Filter()
+
+    # Test body
+    body = {
+        "model": "gpt-4",
+        "messages": [{"role": "user", "content": "Hello"}]
+    }
+
+    # Call inlet - should raise HTTPException
+    with pytest.raises(HTTPException, match="User name and User ID could not be determined"):
+        await filter_instance.inlet(
+            body=body,
+            __user__=user_data,
+            __request__=request,
+            __model__=model_data
+        )
+
+    # Verify get_request_account was not called
+    mock_get_request_account.assert_not_called()
+
+
+async def test_inlet_get_account_fails(mocker):
+    """Test inlet when getting account fails"""
+    # Mock the get_request_account function to raise an exception
+    mock_get_request_account = mocker.patch("filters.accounting.get_request_account")
+
+    # Set up mock request
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/api/v1/chat",
+        "headers": [
+            (b"host", b"PZS0708.chat.example.com")
+        ],
+    }
+    request = Request(scope=scope)
+
+    # Set up user data
+    user_data = {
+        "name": "test_user",
+        "id": "test_user_id"
+    }
+
+    # Set up model data
+    model_data = {
+        "id": "gpt-4"
+    }
+
+    # Create filter instance
+    filter_instance = accounting.Filter()
+
+    # Test body
+    body = {
+        "model": "gpt-4",
+        "messages": [{"role": "user", "content": "Hello"}]
+    }
+
+    # Mock get_request_account to raise an exception
+    mock_get_request_account.side_effect = HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Account not valid"
+    )
+
+    # Call inlet - should raise HTTPException from get_request_account
+    with pytest.raises(HTTPException, match="Account not valid"):
+        await filter_instance.inlet(
+            body=body,
+            __user__=user_data,
+            __request__=request,
+            __model__=model_data
+        )
+
+    # Verify get_request_account was called
+    mock_get_request_account.assert_called_once_with(request, "test_user_id", "test_user")
