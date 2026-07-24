@@ -83,6 +83,8 @@ class Filter:
         self.metric_job = "k8-token-accounting"
         self.metric_name = "osc_k8_accounting_tokens_total"
         self.requests_metric_name = "osc_k8_accounting_requests_total"
+        self.error_metric_job = "token-accounting-error"
+        self.error_metric_name = "osc_k8_accounting_error"
         self.lockfile = "/tmp/accounting.lock"
 
     async def get_metrics(
@@ -171,6 +173,29 @@ class Filter:
                 )
             self.logger.info(f"Metric sent: status={r.status_code} body={r.text}")
 
+    async def send_error_metric(
+        self, error: str,
+    ) -> None:
+        metric_data = f"""
+# HELP {self.error_metric_name} K8 token accounting error
+# TYPE {self.error_metric_name} gauge
+{self.error_metric_name}{{error="{error}"}} 1
+"""
+        path = f"job/{self.error_metric_job}"
+        metrics_url = f"{self.valves.pushgateway_url}/metrics/{path}"
+        metrics_header = {"Content-Type": "text/plain"}
+        self.logger.info(
+            f"Send error metric error=\"{error}\" to {metrics_url}"
+        )
+        async with httpx.AsyncClient() as client:
+            r = await client.post(
+                metrics_url, content=metric_data, headers=metrics_header
+            )
+            if not r.is_success:
+                self.logger.error(f"{self.error_prefix} msg=\"Unable to push error metric\" status={r.status_code} body=\"{r.text}\"")
+                return
+            self.logger.info(f"Error metric sent: status={r.status_code} body={r.text}")
+
     async def inlet(
         self,
         body: dict,
@@ -211,6 +236,7 @@ class Filter:
         __request__: Request = None,
         __model__: dict = {},
     ) -> dict:
+        error = None
         try:
             user_name = (__user__ or {}).get("name")
             user_id = (__user__ or {}).get("id")
@@ -269,8 +295,14 @@ class Filter:
             self.logger.error(
                 f"{self.error_prefix} msg=\"Timeout waiting for lock\" id={chat_id} user={user_name} account={account} model={model}"
             )
+            error = "lock timeout"
         except HTTPException as e:
             self.logger.error(f"{self.error_prefix} msg=\"{e.detail}\"")
+            error = e.detail
         except Exception as e:
             self.logger.exception(f"{self.error_prefix} msg=\"An unhandled exception occurred {e}\"")
+            error = "exception"
+        finally:
+            if error is not None:
+                await self.send_error_metric(error=error)
         return body
