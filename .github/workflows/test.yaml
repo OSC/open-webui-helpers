@@ -22,5 +22,8 @@ jobs:
       - name: Lint
         run: make lint
 
+      - name: Check format
+        run: make check-format
+
       - name: Test
         run: make test

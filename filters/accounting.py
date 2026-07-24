@@ -174,7 +174,8 @@ class Filter:
             self.logger.info(f"Metric sent: status={r.status_code} body={r.text}")
 
     async def send_error_metric(
-        self, error: str,
+        self,
+        error: str,
     ) -> None:
         metric_data = f"""
 # HELP {self.error_metric_name} K8 token accounting error
@@ -184,15 +185,15 @@ class Filter:
         path = f"job/{self.error_metric_job}"
         metrics_url = f"{self.valves.pushgateway_url}/metrics/{path}"
         metrics_header = {"Content-Type": "text/plain"}
-        self.logger.info(
-            f"Send error metric error=\"{error}\" to {metrics_url}"
-        )
+        self.logger.info(f'Send error metric error="{error}" to {metrics_url}')
         async with httpx.AsyncClient() as client:
             r = await client.post(
                 metrics_url, content=metric_data, headers=metrics_header
             )
             if not r.is_success:
-                self.logger.error(f"{self.error_prefix} msg=\"Unable to push error metric\" status={r.status_code} body=\"{r.text}\"")
+                self.logger.error(
+                    f'{self.error_prefix} msg="Unable to push error metric" status={r.status_code} body="{r.text}"'
+                )
                 return
             self.logger.info(f"Error metric sent: status={r.status_code} body={r.text}")
 
@@ -293,14 +294,16 @@ class Filter:
                 self.logger.info(f"Metrics took {elapsed_time}")
         except Timeout:
             self.logger.error(
-                f"{self.error_prefix} msg=\"Timeout waiting for lock\" id={chat_id} user={user_name} account={account} model={model}"
+                f'{self.error_prefix} msg="Timeout waiting for lock" id={chat_id} user={user_name} account={account} model={model}'
             )
             error = "lock timeout"
         except HTTPException as e:
-            self.logger.error(f"{self.error_prefix} msg=\"{e.detail}\"")
+            self.logger.error(f'{self.error_prefix} msg="{e.detail}"')
             error = e.detail
         except Exception as e:
-            self.logger.exception(f"{self.error_prefix} msg=\"An unhandled exception occurred {e}\"")
+            self.logger.exception(
+                f'{self.error_prefix} msg="An unhandled exception occurred {e}"'
+            )
             error = "exception"
         finally:
             if error is not None:

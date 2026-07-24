@@ -14,3 +14,11 @@ lint: install
 .PHONY: test
 test: install
 	python -m pytest
+
+.PHONY: format
+format: install
+	black filters/ tests/
+
+.PHONY: check-format
+check-format: install
+	black --check filters tests
