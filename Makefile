@@ -13,7 +13,7 @@ lint: install
 
 .PHONY: test
 test: install
-	python -m pytest
+	python -m pytest --cov=filters --cov-report term-missing
 
 .PHONY: format
 format: install
