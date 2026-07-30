@@ -1,4 +1,5 @@
 # import base64
+import os
 import time
 from pydantic import BaseModel, Field
 from fastapi import Request, HTTPException, status
@@ -75,6 +76,10 @@ class Filter:
             default="http://pushgateway.prometheus.svc:9091",
             description="Push gateway URL",
         )
+        lock_dir: str = Field(
+            default="/tmp",
+            description="Directory for lock files",
+        )
 
     def __init__(self):
         self.valves = self.Valves()
@@ -85,7 +90,6 @@ class Filter:
         self.requests_metric_name = "osc_k8_accounting_requests_total"
         self.error_metric_job = "token-accounting-error"
         self.error_metric_name = "osc_k8_accounting_error"
-        self.lockfile = "/tmp/accounting.lock"
 
     async def get_metrics(
         self, user_name: str, account: str, model: str, instance: str
@@ -270,7 +274,8 @@ class Filter:
             )
 
             instance = f"{model}-{account}-{user_name}"
-            lock = AsyncFileLock(self.lockfile)
+            lock_file_path = os.path.join(self.valves.lock_dir, f"{instance}.lock")
+            lock = AsyncFileLock(lock_file_path, preserve_lock_file=False)
             async with lock:
                 start_time = time.perf_counter()
                 metric_value, requests_value = await self.get_metrics(
