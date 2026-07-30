@@ -3,6 +3,7 @@ from filters import accounting
 import pytest
 from fastapi import Request, HTTPException, status
 from open_webui.models.groups import Groups, GroupModel
+from filelock import Timeout
 
 
 async def test_get_request_account_valid(mocker):
@@ -298,6 +299,98 @@ async def test_get_usage_with_response_message_id(mocker):
     }
 
 
+async def test_get_usage_non_dict_messages_with_response_id(mocker):
+    """Test that get_usage handles non-dict messages with response_message_id set"""
+    # This test specifically exercises the code path where response_message_id is set
+    # and we iterate through messages that include non-dict entries
+    body = {
+        "id": "test",
+        "messages": [
+            {"role": "assistant", "content": "Hi", "id": "other_msg"},
+            "not a dict",
+            {"role": "user", "content": "Hello"},
+            {
+                "id": "msg_target",
+                "role": "assistant",
+                "content": "Target response",
+                "usage": {
+                    "prompt_tokens": 100,
+                    "completion_tokens": 50,
+                    "total_tokens": 150,
+                },
+            },
+        ],
+    }
+
+    result = await accounting.get_usage(body)
+
+    assert result == {
+        "prompt_tokens": 100,
+        "completion_tokens": 50,
+        "total_tokens": 150,
+    }
+
+
+async def test_get_usage_non_dict_messages_without_response_id(mocker):
+    """Test that get_usage handles non-dict messages with response_message_id set"""
+    # This test specifically exercises the code path where response_message_id is not set
+    # and we iterate through messages that include non-dict entries
+    body = {
+        "messages": [
+            {"role": "assistant", "content": "Hi", "id": "other_msg"},
+            {
+                "id": "msg_target",
+                "role": "assistant",
+                "content": "Target response",
+                "usage": {
+                    "prompt_tokens": 100,
+                    "completion_tokens": 50,
+                    "total_tokens": 150,
+                },
+            },
+            "not a dict",
+            {"role": "user", "content": "Hello"},
+        ]
+    }
+
+    result = await accounting.get_usage(body)
+
+    assert result == {
+        "prompt_tokens": 100,
+        "completion_tokens": 50,
+        "total_tokens": 150,
+    }
+
+
+async def test_get_usage_message_with_empty_usage(mocker):
+    """Test that get_usage skips messages with empty or invalid usage"""
+    body = {
+        "messages": [
+            {"role": "user", "content": "Hello", "usage": {}},
+            {"role": "assistant", "content": "Hi", "usage": None},
+            {"role": "assistant", "content": "Bye", "usage": "invalid"},
+            {
+                "id": "msg_123",
+                "role": "assistant",
+                "content": "Final",
+                "usage": {
+                    "prompt_tokens": 100,
+                    "completion_tokens": 50,
+                    "total_tokens": 150,
+                },
+            },
+        ]
+    }
+
+    result = await accounting.get_usage(body)
+
+    assert result == {
+        "prompt_tokens": 100,
+        "completion_tokens": 50,
+        "total_tokens": 150,
+    }
+
+
 async def test_get_metrics_both_metrics_found(httpx_mock):
     """Test get_metrics when both metrics are found"""
     # Configure httpx_mock to return a successful response
@@ -397,6 +490,49 @@ async def test_get_metrics_no_metrics_found(httpx_mock):
 
     # Assert result - both should default to 0
     assert result == (0, 0)
+
+
+async def test_get_metrics_job_not_found_in_data(httpx_mock, caplog):
+    """Test get_metrics when metric data doesn't have job field"""
+    # Configure httpx_mock to return a response with data that lacks job field
+    httpx_mock.add_response(
+        url="http://pushgateway.prometheus.svc:9091/api/v1/metrics",
+        json={
+            "data": [
+                {
+                    "labels": {"instance": "gpt-4-PZS0708-username"},
+                    # No job field - should skip this data
+                    "osc_k8_accounting_tokens_total": {"metrics": [{"value": "150"}]},
+                },
+                {
+                    "labels": {
+                        "job": "k8-token-accounting",
+                        "instance": "gpt-4-PZS0708-username",
+                    },
+                    "osc_k8_accounting_tokens_total": {"metrics": [{"value": "100"}]},
+                    "osc_k8_accounting_requests_total": {"metrics": [{"value": "3"}]},
+                },
+            ]
+        },
+        status_code=200,
+    )
+
+    # Create filter instance
+    filter_instance = accounting.Filter()
+
+    # Call get_metrics
+    with caplog.at_level("DEBUG"):
+        result = await filter_instance.get_metrics(
+            user_name="username",
+            account="PZS0708",
+            model="gpt-4",
+            instance="gpt-4-PZS0708-username",
+        )
+
+    # Assert result - should get value from second data entry
+    assert result == (100, 3)
+    # Verify that the first entry was skipped due to missing job
+    assert "job value not found in metric data" in caplog.text
 
 
 async def test_get_metrics_client_not_successful(httpx_mock):
@@ -999,6 +1135,88 @@ async def test_outlet_usage_missing(mocker, caplog):
     )
 
 
+async def test_outlet_total_tokens_is_none(mocker, caplog):
+    """Test outlet when usage is found but total_tokens is None"""
+    # Mock external functions
+    mock_get_request_account = mocker.patch("filters.accounting.get_request_account")
+    mock_get_usage = mocker.patch("filters.accounting.get_usage")
+    mock_send_error_metric = mocker.patch.object(accounting.Filter, "send_error_metric")
+
+    # Set up mock request
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/api/v1/chat",
+        "headers": [(b"host", b"PZS0708.chat.example.com")],
+    }
+    request = Request(scope=scope)
+
+    # Set up user data
+    user_data = {"name": "test_user", "id": "test_user_id"}
+
+    # Set up metadata
+    metadata = {"chat_id": "chat_123"}
+
+    # Set up model data
+    model_data = {"id": "gpt-4"}
+
+    # Create filter instance
+    filter_instance = accounting.Filter()
+
+    # Test body with usage that has no total_tokens
+    body = {
+        "id": "msg_123",
+        "model": "gpt-4",
+        "messages": [
+            {"role": "user", "content": "Hello"},
+            {
+                "role": "assistant",
+                "content": "Hi there!",
+                "usage": {
+                    "prompt_tokens": 120,
+                    "completion_tokens": 80,
+                    # No total_tokens
+                },
+            },
+        ],
+    }
+
+    # Mock get_usage to return usage with no total_tokens
+    mock_get_usage.return_value = {
+        "prompt_tokens": 120,
+        "completion_tokens": 80,
+    }
+    # Mock get_request_account to return a valid account
+    mock_get_request_account.return_value = "PZS0708"
+
+    # Call outlet - should NOT raise HTTPException (caught and logged)
+    with caplog.at_level("ERROR"):
+        result = await filter_instance.outlet(
+            body=body,
+            __user__=user_data,
+            __metadata__=metadata,
+            __request__=request,
+            __model__=model_data,
+        )
+
+    # Verify the result is the same as the input body (returned normally)
+    assert result == body
+
+    # Verify get_request_account was called
+    mock_get_request_account.assert_called_once_with(
+        request, "test_user_id", "test_user"
+    )
+    # Verify get_usage was called
+    mock_get_usage.assert_called_once_with(body)
+
+    # Verify error message was logged
+    assert "Request lacks token usage in the response" in caplog.text
+    # Verify send_error_metric was called with the error (includes the usage dict)
+    mock_send_error_metric.assert_called_once_with(
+        error="Request lacks token usage in the response: {'prompt_tokens': 120, 'completion_tokens': 80}"
+    )
+
+
 async def test_outlet_get_metrics_fails(mocker, caplog):
     """Test outlet when get_metrics fails"""
     # Mock external functions
@@ -1197,3 +1415,164 @@ async def test_outlet_send_metrics_fails(mocker, caplog):
 
     # Verify error message was logged
     assert "Pushgateway connection failed" in caplog.text
+
+
+async def test_outlet_timeout_waiting_for_lock(mocker, caplog):
+    """Test outlet when a Timeout exception occurs waiting for lock
+
+    This test uses mock_lock to raise filelock.Timeout when entering the
+    context manager, covering the Timeout exception handler at lines 300-304.
+    We stub get_metrics to avoid network calls inside the lock context.
+    """
+    # Mock external functions
+    mock_get_request_account = mocker.patch("filters.accounting.get_request_account")
+    mock_get_usage = mocker.patch("filters.accounting.get_usage")
+    mock_send_error_metric = mocker.patch.object(accounting.Filter, "send_error_metric")
+
+    # Set up mock request
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/api/v1/chat",
+        "headers": [(b"host", b"PZS0708.chat.example.com")],
+    }
+    request = Request(scope=scope)
+
+    # Set up user data
+    user_data = {"name": "test_user", "id": "test_user_id"}
+
+    # Set up metadata
+    metadata = {"chat_id": "chat_123"}
+
+    # Set up model data
+    model_data = {"id": "gpt-4"}
+
+    # Create filter instance
+    filter_instance = accounting.Filter()
+
+    # Test body with usage data
+    body = {
+        "id": "msg_123",
+        "model": "gpt-4",
+        "messages": [
+            {"role": "user", "content": "Hello"},
+            {
+                "role": "assistant",
+                "content": "Hi there!",
+                "usage": {
+                    "prompt_tokens": 120,
+                    "completion_tokens": 80,
+                    "total_tokens": 200,
+                },
+            },
+        ],
+    }
+
+    # Mock external functions
+    mock_get_request_account.return_value = "PZS0708"
+    mock_get_usage.return_value = {
+        "prompt_tokens": 120,
+        "completion_tokens": 80,
+        "total_tokens": 200,
+    }
+
+    mocker.patch("filelock.AsyncFileLock.acquire", side_effect=Timeout("my_file.lock"))
+
+    # Call outlet - should catch Timeout and log error
+    with caplog.at_level("ERROR"):
+        result = await filter_instance.outlet(
+            body=body,
+            __user__=user_data,
+            __metadata__=metadata,
+            __request__=request,
+            __model__=model_data,
+        )
+
+    # Verify the result is the same as the input body (returned normally)
+    assert result == body
+
+    # Verify error message was logged for lock timeout
+    assert "Timeout waiting for lock" in caplog.text
+    # Verify send_error_metric was called with the error
+    mock_send_error_metric.assert_called_once_with(error="lock timeout")
+
+
+async def test_outlet_generic_exception(mocker, caplog):
+    """Test outlet when an unhandled exception occurs"""
+    # Mock external functions
+    mock_get_request_account = mocker.patch("filters.accounting.get_request_account")
+    mock_get_usage = mocker.patch("filters.accounting.get_usage")
+    mock_send_error_metric = mocker.patch.object(accounting.Filter, "send_error_metric")
+
+    # Set up mock request
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/api/v1/chat",
+        "headers": [(b"host", b"PZS0708.chat.example.com")],
+    }
+    request = Request(scope=scope)
+
+    # Set up user data
+    user_data = {"name": "test_user", "id": "test_user_id"}
+
+    # Set up metadata
+    metadata = {"chat_id": "chat_123"}
+
+    # Set up model data
+    model_data = {"id": "gpt-4"}
+
+    # Create filter instance
+    filter_instance = accounting.Filter()
+
+    # Test body with usage data
+    body = {
+        "id": "msg_123",
+        "model": "gpt-4",
+        "messages": [
+            {"role": "user", "content": "Hello"},
+            {
+                "role": "assistant",
+                "content": "Hi there!",
+                "usage": {
+                    "prompt_tokens": 120,
+                    "completion_tokens": 80,
+                    "total_tokens": 200,
+                },
+            },
+        ],
+    }
+
+    # Mock get_usage to return valid usage
+    mock_get_usage.return_value = {
+        "prompt_tokens": 120,
+        "completion_tokens": 80,
+        "total_tokens": 200,
+    }
+    # Mock get_request_account to return a valid account
+    mock_get_request_account.return_value = "PZS0708"
+    # Mock get_metrics to raise a generic exception
+    mock_get_metrics = mocker.patch.object(accounting.Filter, "get_metrics")
+    mock_get_metrics.side_effect = ValueError("Unexpected error")
+    # Mock the lock to avoid file system issues
+    mock_lock = mocker.patch("filelock.AsyncFileLock")
+    mock_lock_instance = mock_lock.return_value
+    mock_lock_instance.__aenter__.return_value = None
+
+    # Call outlet - should catch exception and log error
+    with caplog.at_level("ERROR"):
+        result = await filter_instance.outlet(
+            body=body,
+            __user__=user_data,
+            __metadata__=metadata,
+            __request__=request,
+            __model__=model_data,
+        )
+
+    # Verify the result is the same as the input body (returned normally)
+    assert result == body
+
+    # Verify error message was logged
+    assert "An unhandled exception occurred" in caplog.text
+    # Verify send_error_metric was called with the error
+    mock_send_error_metric.assert_called_once_with(error="exception")

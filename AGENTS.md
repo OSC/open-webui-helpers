@@ -15,13 +15,14 @@ This will run the full test suite including all filter tests.
 After completing any development task, run the following commands to ensure code quality:
 
 ```bash
-make test    # Run all tests
+make test    # Run all tests and show test coverage
 make lint    # Run linting checks
 make format  # Format code
 ```
 
 These commands ensure:
 - All tests pass
+- All code had test coverage from `make test` output
 - Code follows linting standards
 - Code is properly formatted
 

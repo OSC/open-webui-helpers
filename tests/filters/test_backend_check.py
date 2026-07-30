@@ -445,6 +445,91 @@ async def test_inlet_query_models_fails_raises_exception(httpx_mock):
     assert "/models" in str(requests[0].url)
 
 
+async def test_inlet_wait_loop_models_query_fails(httpx_mock, caplog, mocker):
+    """Test inlet when wait loop models query fails - covers line 128 (raise unavailable)"""
+    # Set up mock request with wait header
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/api/v1/chat",
+        "headers": [(b"host", b"example.com"), (b"x-osc-wait", b"true")],
+    }
+    request = Request(scope=scope)
+
+    # Set up metadata (not from WebUI)
+    metadata = {"interface": "api"}
+
+    # Set up model data with urlIdx and user
+    model_data = {"id": "gpt-4", "urlIdx": 0}
+    user_data = {"name": "testuser"}
+
+    # Create filter instance
+    filter_instance = backend_check.Filter()
+    # Stub timeout for testing - set short duration (30 seconds with 10-second delay = 3 retries)
+    filter_instance.valves.wait_duration = 30
+
+    # Test body
+    body = {"model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}]}
+
+    # Mock Config.get to return backends
+    Config.get = AsyncMock(return_value=["http://backend.example.com"])
+
+    # Mock httpx client responses:
+    # First call: no models (scale up needed)
+    # Second call: POST to pushgateway (scale up)
+    # Third call: GET /models - still no models
+    # Fourth call: GET /models - fails with 500 error (this is the wait loop failure)
+    httpx_mock.add_response(
+        url="http://backend.example.com/models",
+        method="GET",
+        json={"data": []},  # No models - trigger scale up
+        status_code=200,
+    )
+    httpx_mock.add_response(
+        url="http://pushgateway.prometheus.svc:9091/metrics/job/dynamo-gpt-4",
+        method="POST",
+        status_code=200,
+        text="OK",
+    )
+    httpx_mock.add_response(
+        url="http://backend.example.com/models",
+        method="GET",
+        json={"data": []},  # No models
+        status_code=200,
+    )
+    # This call fails - covers the wait loop's line 128 (raise unavailable)
+    httpx_mock.add_response(
+        url="http://backend.example.com/models",
+        method="GET",
+        status_code=500,
+        text="Internal Server Error",
+    )
+
+    # Mock asyncio.sleep to skip actual waiting
+    mocker.patch("asyncio.sleep", return_value=None)
+
+    # Call inlet - should raise HTTPException after wait loop failure
+    with caplog.at_level("INFO"):
+        with pytest.raises(
+            HTTPException, match="The AI backend is temporarily unavailable"
+        ):
+            await filter_instance.inlet(
+                body=body,
+                __user__=user_data,
+                __metadata__=metadata,
+                __request__=request,
+                __model__=model_data,
+            )
+
+    # Verify all requests were made
+    requests = httpx_mock.get_requests()
+    assert len(requests) == 4  # 1 initial GET + 1 POST + 2 wait loop GETs
+
+    # Verify the last request was to /models and failed
+    assert requests[-1].method == "GET"
+    assert "/models" in str(requests[-1].url)
+
+
 async def test_inlet_from_webui_returns_body(httpx_mock):
     """Test inlet when request is from WebUI, returns body directly without checking backend"""
     # Set up mock request
@@ -482,3 +567,48 @@ async def test_inlet_from_webui_returns_body(httpx_mock):
 
     # Verify no HTTP requests were made
     assert len(httpx_mock.get_requests()) == 0
+
+
+async def test_inlet_without_url_idx(mocker, caplog):
+    """Test inlet when model doesn't have urlIdx - should raise HTTPException"""
+    # Set up mock request
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/api/v1/chat",
+        "headers": [(b"host", b"example.com")],
+    }
+    request = Request(scope=scope)
+
+    # Set up metadata (not from WebUI)
+    metadata = {"interface": "api"}
+
+    # Model data without urlIdx - this should trigger the "Unable to determine model index" log and raise exception
+    model_data = {"id": "gpt-4"}
+
+    # Create filter instance
+    filter_instance = backend_check.Filter()
+
+    # Test body
+    body = {"model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}]}
+
+    # Mock Config.get to return backends
+    from unittest.mock import AsyncMock
+    from open_webui.models.config import Config
+
+    Config.get = AsyncMock(return_value=["http://backend.example.com"])
+
+    # Call inlet - should raise HTTPException with "Unable to determine backend URL"
+    with caplog.at_level("INFO"):
+        with pytest.raises(HTTPException, match="Unable to determine backend URL"):
+            await filter_instance.inlet(
+                body=body,
+                __user__=None,
+                __metadata__=metadata,
+                __request__=request,
+                __model__=model_data,
+            )
+
+    # Verify the warning was logged
+    assert "Unable to determine model index" in caplog.text
+    assert "model-metadata=" in caplog.text

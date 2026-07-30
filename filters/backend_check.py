@@ -47,12 +47,17 @@ class Filter:
 
         idx = __model__.get("urlIdx", None)
         backends = await Config.get("openai.api_base_urls") or []
+        backend_url = None
         if idx is not None and len(backends) > 0:
             backend_url = backends[idx]
             # self.logger.info(f"Backend URL: {backend_url}")
         else:
             self.logger.info(
                 f"Unable to determine model index. model-metadata={__model__}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Unable to determine backend URL",
             )
         unavailable = HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
