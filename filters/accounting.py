@@ -1,16 +1,13 @@
 # import base64
 import os
 import time
-from datetime import datetime, timedelta, timezone
 from pydantic import BaseModel, Field
 from fastapi import Request, HTTPException, status
 import httpx
 import logging
-from open_webui.models.groups import Groups
-from open_webui.models.users import Users
 from typing import Any
 from filelock import AsyncFileLock, Timeout
-from ldap3 import Server, Connection, ALL
+from ldap3 import Server, Connection, ALL, ServerPool, FIRST
 from ldap3.utils.conv import escape_filter_chars
 
 
@@ -58,25 +55,17 @@ class Filter:
             description="Directory for lock files",
         )
         # LDAP configuration for fallback verification
-        ldap_url: str = Field(
-            default="",
-            description="LDAP server URL (e.g., ldap://ldap.example.com)",
+        ldap_urls: list = Field(
+            default=[],
+            description="LDAP server URLs (e.g., ldap://ldap.example.com)",
         )
         ldap_base_dn: str = Field(
-            default="",
+            default="dc=osc,dc=edu",
             description="Base DN for LDAP searches (e.g., dc=osc,dc=edu)",
         )
-        ldap_member_attribute: str = Field(
-            default="member",
-            description="LDAP attribute containing group members",
-        )
-        ldap_user_attribute: str = Field(
-            default="cn",
-            description="LDAP attribute to match username",
-        )
-        ldap_inactive_threshold_days: int = Field(
-            default=7,
-            description="Days of inactivity before LDAP fallback",
+        ldap_user_dn: str = Field(
+            default="ou=people,dc=osc,dc=edu",
+            description="Base DN for LDAP user searches (e.g., ou=people,dc=osc,dc=edu)",
         )
 
     def __init__(self):
@@ -89,137 +78,95 @@ class Filter:
         self.error_metric_job = "token-accounting-error"
         self.error_metric_name = "osc_k8_accounting_error"
 
-    async def check_ldap_membership(self, username: str, group_name: str) -> bool:
+    async def get_ldap_groups(self, username: str) -> list[str]:
         """
-        Check if a user is a member of a group via LDAP.
+        Get all groups a user belongs to via LDAP.
 
         Args:
-            username: The username to check
-            group_name: The group name to check membership for
+            username: The username to search for
 
         Returns:
-            True if user is a member of the group, False otherwise
+            List of group names the user is a member of
         """
-        if not self.valves.ldap_url or not self.valves.ldap_base_dn:
+        if not self.valves.ldap_urls or not self.valves.ldap_base_dn:
             self.logger.debug("LDAP not configured, skipping membership check")
-            return False
+            return []
 
+        groups = []
         try:
             # Connect to LDAP server
-            server = Server(self.valves.ldap_url, get_info=ALL)
+            pool = []
+            for url in self.valves.ldap_urls:
+                server = Server(url, get_info=ALL)
+                pool.append(server)
+            pool = ServerPool(pool, pool_strategy=FIRST, active=True)
             connection = Connection(server, auto_bind=False)
 
             # Try anonymous bind
             if not connection.bind():
                 self.logger.warning(
-                    f"Failed to bind to LDAP server anonymously: {self.valves.ldap_url}"
+                    f"Failed to bind to LDAP server anonymously: {self.valves.ldap_urls}"
                 )
-                return False
+                return []
 
-            # Build search filter for the group (posixGroup object class)
-            group_filter = f"(&(cn={escape_filter_chars(group_name)})(objectClass=posixGroup)(status=ACTIVE))"
+            # Build user DN pattern (format: cn=<username>,ou=people,dc=osc,dc=edu)
+            user_dn = f"cn={escape_filter_chars(username)},{self.valves.ldap_user_dn}"
 
-            # Search for the group
+            # Search for all posixGroup entries where user is a member
+            group_filter = (
+                f"(&(objectClass=posixGroup)(status=ACTIVE)(cn=P*)(member={user_dn}))"
+            )
+
             connection.search(
                 search_base=self.valves.ldap_base_dn,
                 search_filter=group_filter,
-                attributes=[self.valves.ldap_member_attribute],
-            )
-            if not connection.entries:
-                self.logger.debug(f"Group {group_name} not found in LDAP")
-                connection.unbind()
-                return False
-
-            # Get the group entry
-            group_entry = connection.entries[0]
-            members = getattr(group_entry, self.valves.ldap_member_attribute, None)
-            if not members:
-                self.logger.debug(f"Group {group_name} has no members")
-                connection.unbind()
-                return False
-
-            # Build user DN pattern (format: cn=<username>,ou=people,dc=osc,dc=edu)
-            user_dn_pattern = (
-                f"{self.valves.ldap_user_attribute}={escape_filter_chars(username)}"
+                attributes=["cn"],
             )
 
-            # Check if any member matches the user
-            self.logger.info(f"DEBUG group={group_name} class={type(members)}")
-            for member in members.values:
-                member_str = str(member)
-                # Check if member DN contains the user attribute with the username
-                if user_dn_pattern.lower() in member_str.lower():
-                    self.logger.debug(
-                        f"User {username} found in LDAP group {group_name}"
-                    )
-                    connection.unbind()
-                    return True
+            for entry in connection.entries:
+                group_name = entry.cn
+                groups.append(group_name)
 
-            self.logger.debug(f"User {username} not found in LDAP group {group_name}")
             connection.unbind()
-            return False
+            return groups
 
         except Exception as e:
-            self.logger.error(
-                f"LDAP membership check failed for user {username}, group {group_name}: {e}"
-            )
-            return False
+            self.logger.error(f"LDAP group lookup failed for user {username}: {e}")
+            return []
 
-    async def get_request_account(
-        self, request: Request, user_id: str, user_name: str
-    ) -> str:
+    async def get_request_account(self, request: Request, user_name: str) -> str:
         request_host = request.url.hostname
         host_parts = request_host.split(".")
         account = None
+
+        # Get user's LDAP groups
+        ldap_groups = await self.get_ldap_groups(user_name)
+
         if len(host_parts) == 4:
+            # Account from host
             account = host_parts[0].upper()
-        member_groups = await Groups.get_groups_by_member_id(user_id)
-        group_names = [group.name for group in member_groups]
-
-        # Check if user is inactive and needs LDAP fallback
-        user = await Users.get_user_by_id(user_id)
-        is_inactive = False
-        if user and user.last_active_at:
-            last_active = datetime.fromtimestamp(user.last_active_at, tz=timezone.utc)
-            threshold = datetime.now(timezone.utc) - timedelta(
-                days=self.valves.ldap_inactive_threshold_days
-            )
-            if last_active < threshold:
-                is_inactive = True
-                self.logger.info(
-                    f"User {user_name} is inactive (last active: {last_active}), will use LDAP fallback"
-                )
-
-        if account is None:
-            accounts = []
-            for group in group_names:
-                if group.startswith("P"):
-                    accounts.append(group)
-            if len(accounts) == 0 or len(accounts) > 1:
+            # Validate account format (must start with capital P)
+            if not account.startswith("P"):
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Request host {request_host} is not valid.  Must be in the format of <project>.<host>.osc.edu",
                 )
-            account = accounts[0]
-
-        # For inactive users, verify account membership via LDAP
-        if is_inactive and account not in group_names:
-            self.logger.info(
-                f"Account {account} not in user's groups, checking LDAP for {user_name}"
-            )
-            ldap_valid = await self.check_ldap_membership(user_name, account)
-            if ldap_valid:
-                self.logger.info(
-                    f"LDAP confirmed user {user_name} is member of group {account}"
-                )
-                return account
-            else:
+        else:
+            # No account in host, use LDAP groups to determine account
+            if len(ldap_groups) == 0:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Account {account} is not valid for user {user_name} (neither in cached groups nor LDAP)",
+                    detail=f"Request host {request_host} is not valid.  Must be in the format of <project>.<host>.osc.edu",
                 )
+            if len(ldap_groups) > 1:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Request host {request_host} is not valid.  Must be in the format of <project>.<host>.osc.edu",
+                )
+            account = ldap_groups[0]
 
-        if account not in group_names:
+        # Validate account is in user's LDAP groups
+        if account not in ldap_groups:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Account {account} is not valid for user {user_name}",
@@ -352,7 +299,7 @@ class Filter:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="User name and User ID could not be determined",
             )
-        account = await self.get_request_account(__request__, user_id, user_name)
+        account = await self.get_request_account(__request__, user_name)
         self.logger.info(f"Found account {account}")
 
         # OpenAI-compatible streaming usage requires stream_options.include_usage=true.
@@ -386,7 +333,7 @@ class Filter:
                     detail="User name and User ID could not be determined",
                 )
             self.logger.info(f"Found user {user_name} and ID {user_id}")
-            account = await self.get_request_account(__request__, user_id, user_name)
+            account = await self.get_request_account(__request__, user_name)
             self.logger.info(f"Found account {account}")
 
             chat_id = __metadata__.get("chat_id") or body.get("id", "unknown")

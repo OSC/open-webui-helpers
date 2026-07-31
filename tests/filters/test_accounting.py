@@ -1,12 +1,10 @@
 from filters import accounting
 
-import pytest
 import json
 import tempfile
-import time
+
+import pytest
 from fastapi import Request, HTTPException, status
-from open_webui.models.groups import Groups, GroupModel
-from open_webui.models.users import Users, UserModel
 from filelock import Timeout
 from ldap3 import Server, Connection, MOCK_SYNC
 
@@ -15,7 +13,7 @@ from ldap3 import Server, Connection, MOCK_SYNC
 
 @pytest.fixture
 def ldap_connection():
-    """Create an LDAP connection to a mock server with test data for check_ldap_membership tests"""
+    """Create an LDAP connection to a mock server with test data for get_ldap_groups tests"""
     # Create a mock server (no schema info needed)
     server = Server("ldap://mock:389", get_info=None)
 
@@ -99,18 +97,18 @@ def ldap_connection():
                 },
             },
             {
-                "dn": "cn=SingleMemberGroup,ou=groups,dc=osc,dc=edu",
+                "dn": "cn=PDE0001,ou=groups,dc=osc,dc=edu",
                 "raw": {
-                    "cn": ["SingleMemberGroup"],
+                    "cn": ["PDE0001"],
                     "objectClass": ["top", "groupOfNames", "posixGroup"],
                     "member": "cn=testuser,ou=people,dc=osc,dc=edu",  # Single value, not list
-                    "status": ["ACTIVE"],
+                    "status": ["RESTRICTED"],
                 },
             },
             {
-                "dn": "cn=NoMembers,ou=groups,dc=osc,dc=edu",
+                "dn": "cn=PZS0001,ou=groups,dc=osc,dc=edu",
                 "raw": {
-                    "cn": ["NoMembers"],
+                    "cn": ["PZS0001"],
                     "objectClass": ["top", "groupOfNames", "posixGroup"],
                     "status": ["ACTIVE"],
                 },
@@ -135,58 +133,40 @@ def ldap_connection():
     return connection
 
 
-async def test_check_ldap_membership_success(mocker, ldap_connection):
-    """Test successful LDAP membership check"""
+async def test_get_ldap_groups_success(mocker, ldap_connection):
+    """Test successful LDAP groups lookup - user belongs to PZS0708 and PDE0001 (not active)"""
     # Bind to the mock server
     mocker.patch("filters.accounting.Connection", return_value=ldap_connection)
 
     filter_instance = accounting.Filter()
-    filter_instance.valves.ldap_url = "ldap://mock"
+    filter_instance.valves.ldap_urls = ["ldap://mock"]
     filter_instance.valves.ldap_base_dn = "dc=osc,dc=edu"
-    filter_instance.valves.ldap_member_attribute = "member"
-    filter_instance.valves.ldap_user_attribute = "cn"
 
-    result = await filter_instance.check_ldap_membership("testuser", "PZS0708")
+    result = await filter_instance.get_ldap_groups("testuser")
 
-    assert result is True
+    # testuser is a member of PZS0708 and PDE0001
+    assert "PZS0708" in result
+    assert "PDE0001" not in result
+    assert len(result) == 1
 
 
-async def test_check_ldap_membership_user_not_in_group(mocker, ldap_connection):
-    """Test LDAP membership check when user is not in group"""
+async def test_get_ldap_groups_user_not_in_any_group(mocker, ldap_connection):
+    """Test LDAP groups lookup when user is not in any group"""
     # Bind to the mock server
     mocker.patch("filters.accounting.Connection", return_value=ldap_connection)
 
     filter_instance = accounting.Filter()
-    filter_instance.valves.ldap_url = "ldap://mock"
+    filter_instance.valves.ldap_urls = ["ldap://mock"]
     filter_instance.valves.ldap_base_dn = "dc=osc,dc=edu"
-    filter_instance.valves.ldap_member_attribute = "member"
-    filter_instance.valves.ldap_user_attribute = "cn"
 
-    result = await filter_instance.check_ldap_membership("testuser", "PZS0645")
+    result = await filter_instance.get_ldap_groups("nonexistentuser")
 
-    assert result is False
+    assert result == []
 
 
-async def test_check_ldap_membership_group_not_found(mocker, ldap_connection):
-    """Test LDAP membership check when group is not found"""
-    # Bind to the mock server
-    mocker.patch("filters.accounting.Connection", return_value=ldap_connection)
-
-    filter_instance = accounting.Filter()
-    filter_instance.valves.ldap_url = "ldap://mock"
-    filter_instance.valves.ldap_base_dn = "dc=osc,dc=edu"
-    filter_instance.valves.ldap_member_attribute = "member"
-    filter_instance.valves.ldap_user_attribute = "cn"
-
-    result = await filter_instance.check_ldap_membership("testuser", "NonExistentGroup")
-
-    assert result is False
-
-
-async def test_check_ldap_membership_bind_fails(mocker):
-    """Test LDAP membership check when bind fails"""
+async def test_get_ldap_groups_bind_fails(mocker):
+    """Test LDAP groups lookup when bind fails"""
     # Mock LDAP server and connection
-    mocker.patch("filters.accounting.Server")
     mock_connection = mocker.MagicMock()
     mocker.patch("filters.accounting.Connection", return_value=mock_connection)
 
@@ -194,102 +174,46 @@ async def test_check_ldap_membership_bind_fails(mocker):
     mock_connection.bind.return_value = False
 
     filter_instance = accounting.Filter()
-    filter_instance.valves.ldap_url = "ldap://ldap.example.com"
+    filter_instance.valves.ldap_urls = ["ldap://mock"]
     filter_instance.valves.ldap_base_dn = "dc=osc,dc=edu"
-    filter_instance.valves.ldap_member_attribute = "member"
-    filter_instance.valves.ldap_user_attribute = "cn"
 
-    result = await filter_instance.check_ldap_membership("testuser", "PZS0708")
+    result = await filter_instance.get_ldap_groups("testuser")
 
-    assert result is False
+    assert result == []
 
 
-async def test_check_ldap_membership_exception(mocker, ldap_connection, caplog):
-    """Test LDAP membership check when exception occurs"""
+async def test_get_ldap_groups_exception(mocker, ldap_connection, caplog):
+    """Test LDAP groups lookup when exception occurs"""
     # Bind successfully first
     mocker.patch("filters.accounting.Connection", return_value=ldap_connection)
 
     filter_instance = accounting.Filter()
-    filter_instance.valves.ldap_url = "ldap://mock"
+    filter_instance.valves.ldap_urls = ["ldap://mock"]
     filter_instance.valves.ldap_base_dn = (
         "invalid-dn"  # Use invalid DN to trigger exception
     )
-    filter_instance.valves.ldap_member_attribute = "member"
-    filter_instance.valves.ldap_user_attribute = "cn"
 
     with caplog.at_level("ERROR"):
-        result = await filter_instance.check_ldap_membership("testuser", "PZS0708")
+        result = await filter_instance.get_ldap_groups("testuser")
 
-    assert result is False
-    assert "LDAP membership check failed" in caplog.text
+    assert result == []
+    assert "LDAP group lookup failed" in caplog.text
 
 
-async def test_check_ldap_membership_not_configured(mocker, ldap_connection):
-    """Test LDAP membership check when LDAP is not configured"""
+async def test_get_ldap_groups_not_configured(mocker, ldap_connection):
+    """Test LDAP groups lookup when LDAP is not configured"""
     mocker.patch("filters.accounting.Connection", return_value=ldap_connection)
 
     filter_instance = accounting.Filter()
-    # Don't set ldap_url or ldap_base_dn
+    # Don't set ldap_urls or ldap_base_dn
 
-    result = await filter_instance.check_ldap_membership("testuser", "PZS0708")
+    result = await filter_instance.get_ldap_groups("testuser")
 
-    assert result is False
-
-
-async def test_check_ldap_membership_single_member(mocker, ldap_connection):
-    """Test LDAP membership check when members is a single value (not a list)"""
-    # Bind to the mock server
-    mocker.patch("filters.accounting.Connection", return_value=ldap_connection)
-
-    filter_instance = accounting.Filter()
-    filter_instance.valves.ldap_url = "ldap://mock"
-    filter_instance.valves.ldap_base_dn = "dc=osc,dc=edu"
-    filter_instance.valves.ldap_member_attribute = "member"
-    filter_instance.valves.ldap_user_attribute = "cn"
-
-    # Use the SingleMemberGroup which has a single member (not a list)
-    result = await filter_instance.check_ldap_membership(
-        "testuser", "SingleMemberGroup"
-    )
-
-    assert result is True
-
-
-async def test_check_ldap_membership_single_member_not_match(mocker, ldap_connection):
-    """Test LDAP membership check when single member does not match"""
-    # Bind to the mock server
-    mocker.patch("filters.accounting.Connection", return_value=ldap_connection)
-
-    filter_instance = accounting.Filter()
-    filter_instance.valves.ldap_url = "ldap://mock"
-    filter_instance.valves.ldap_base_dn = "dc=osc,dc=edu"
-    filter_instance.valves.ldap_member_attribute = "member"
-    filter_instance.valves.ldap_user_attribute = "cn"
-
-    # Use SingleMemberGroup but look for a user that's not the member
-    result = await filter_instance.check_ldap_membership(
-        "otheruser", "SingleMemberGroup"
-    )
-
-    assert result is False
-
-
-async def test_check_ldap_membership_group_without_members(mocker, ldap_connection):
-    """Test LDAP membership check when group has no members"""
-    mocker.patch("filters.accounting.Connection", return_value=ldap_connection)
-
-    filter_instance = accounting.Filter()
-    filter_instance.valves.ldap_url = "ldap://mock"
-    filter_instance.valves.ldap_base_dn = "dc=osc,dc=edu"
-    filter_instance.valves.ldap_member_attribute = "member"
-    filter_instance.valves.ldap_user_attribute = "cn"
-
-    result = await filter_instance.check_ldap_membership("otheruser", "NoMembers")
-
-    assert result is False
+    assert result == []
 
 
 async def test_get_request_account_valid(mocker):
+    """Test valid account from host with LDAP confirmed membership"""
     scope = {
         "type": "http",
         "method": "GET",
@@ -297,58 +221,18 @@ async def test_get_request_account_valid(mocker):
         "headers": [(b"host", b"PZS0708.chat.example.com")],
     }
     request = Request(scope=scope)
-    groups = []
-    groups.append(
-        GroupModel(
-            id="1",
-            name="PZS0708",
-            user_id="1",
-            description="PZS0708",
-            created_at=1,
-            updated_at=1,
-        )
-    )
-    groups.append(
-        GroupModel(
-            id="1",
-            name="PZS0645",
-            user_id="1",
-            description="PZS0645",
-            created_at=1,
-            updated_at=1,
-        )
-    )
-    groups.append(
-        GroupModel(
-            id="1",
-            name="duo",
-            user_id="1",
-            description="duo",
-            created_at=1,
-            updated_at=1,
-        )
-    )
-    mocker.patch.object(Groups, "get_groups_by_member_id", return_value=groups)
-    # Mock user as active (no LDAP fallback needed)
-    mock_user = UserModel(
-        id="user-id",
-        email="test@example.com",
-        name="username",
-        role="user",
-        profile_image_url=None,
-        last_active_at=int(time.time()),
-        created_at=int(time.time()),
-        updated_at=int(time.time()),
-    )
-    mocker.patch.object(Users, "get_user_by_id", return_value=mock_user)
+
+    # Mock get_ldap_groups to return the account
+    mocker.patch.object(accounting.Filter, "get_ldap_groups", return_value=["PZS0708"])
 
     filter_instance = accounting.Filter()
-    result = await filter_instance.get_request_account(request, "user-id", "username")
+    result = await filter_instance.get_request_account(request, "testuser")
 
     assert result == "PZS0708"
 
 
-async def test_get_request_account_invalid(mocker):
+async def test_get_request_account_invalid_host_format(mocker):
+    """Test invalid host format (account doesn't start with P)"""
     scope = {
         "type": "http",
         "method": "GET",
@@ -356,58 +240,15 @@ async def test_get_request_account_invalid(mocker):
         "headers": [(b"host", b"PDE0001.chat.example.com")],
     }
     request = Request(scope=scope)
-    groups = []
-    groups.append(
-        GroupModel(
-            id="1",
-            name="PZS0708",
-            user_id="1",
-            description="PZS0708",
-            created_at=1,
-            updated_at=1,
-        )
-    )
-    groups.append(
-        GroupModel(
-            id="1",
-            name="PZS0645",
-            user_id="1",
-            description="PZS0645",
-            created_at=1,
-            updated_at=1,
-        )
-    )
-    groups.append(
-        GroupModel(
-            id="1",
-            name="duo",
-            user_id="1",
-            description="duo",
-            created_at=1,
-            updated_at=1,
-        )
-    )
-    mocker.patch.object(Groups, "get_groups_by_member_id", return_value=groups)
-    # Mock user as active
-    mock_user = UserModel(
-        id="user-id",
-        email="test@example.com",
-        name="username",
-        role="user",
-        profile_image_url=None,
-        last_active_at=int(time.time()),
-        created_at=int(time.time()),
-        updated_at=int(time.time()),
-    )
-    mocker.patch.object(Users, "get_user_by_id", return_value=mock_user)
 
     filter_instance = accounting.Filter()
 
-    with pytest.raises(HTTPException, match="is not valid for user"):
-        _ = await filter_instance.get_request_account(request, "user-id", "username")
+    with pytest.raises(HTTPException, match="is not valid"):
+        _ = await filter_instance.get_request_account(request, "username")
 
 
 async def test_get_request_account_no_url_single_project(mocker):
+    """Test account selection from LDAP when host has no project prefix and user has single P* group"""
     scope = {
         "type": "http",
         "method": "GET",
@@ -415,48 +256,18 @@ async def test_get_request_account_no_url_single_project(mocker):
         "headers": [(b"host", b"chat.example.com")],
     }
     request = Request(scope=scope)
-    groups = []
-    groups.append(
-        GroupModel(
-            id="1",
-            name="PZS0708",
-            user_id="1",
-            description="PZS0708",
-            created_at=1,
-            updated_at=1,
-        )
-    )
-    groups.append(
-        GroupModel(
-            id="1",
-            name="duo",
-            user_id="1",
-            description="duo",
-            created_at=1,
-            updated_at=1,
-        )
-    )
-    mocker.patch.object(Groups, "get_groups_by_member_id", return_value=groups)
-    # Mock user as active
-    mock_user = UserModel(
-        id="user-id",
-        email="test@example.com",
-        name="username",
-        role="user",
-        profile_image_url=None,
-        last_active_at=int(time.time()),
-        created_at=int(time.time()),
-        updated_at=int(time.time()),
-    )
-    mocker.patch.object(Users, "get_user_by_id", return_value=mock_user)
+
+    # Mock get_ldap_groups to return single P* group
+    mocker.patch.object(accounting.Filter, "get_ldap_groups", return_value=["PZS0708"])
 
     filter_instance = accounting.Filter()
-    result = await filter_instance.get_request_account(request, "user-id", "username")
+    result = await filter_instance.get_request_account(request, "username")
 
     assert result == "PZS0708"
 
 
 async def test_get_request_account_no_url_multiple_projects(mocker):
+    """Test error when host has no project prefix and user has multiple P* groups"""
     scope = {
         "type": "http",
         "method": "GET",
@@ -464,157 +275,75 @@ async def test_get_request_account_no_url_multiple_projects(mocker):
         "headers": [(b"host", b"chat.example.com")],
     }
     request = Request(scope=scope)
-    groups = []
-    groups.append(
-        GroupModel(
-            id="1",
-            name="PZS0708",
-            user_id="1",
-            description="PZS0708",
-            created_at=1,
-            updated_at=1,
-        )
+
+    # Mock get_ldap_groups to return multiple P* groups
+    mocker.patch.object(
+        accounting.Filter, "get_ldap_groups", return_value=["PZS0708", "PZS0645", "duo"]
     )
-    groups.append(
-        GroupModel(
-            id="1",
-            name="PZS0645",
-            user_id="1",
-            description="PZS0645",
-            created_at=1,
-            updated_at=1,
-        )
-    )
-    groups.append(
-        GroupModel(
-            id="1",
-            name="duo",
-            user_id="1",
-            description="duo",
-            created_at=1,
-            updated_at=1,
-        )
-    )
-    mocker.patch.object(Groups, "get_groups_by_member_id", return_value=groups)
-    # Mock user as active
-    mock_user = UserModel(
-        id="user-id",
-        email="test@example.com",
-        name="username",
-        role="user",
-        profile_image_url=None,
-        last_active_at=int(time.time()),
-        created_at=int(time.time()),
-        updated_at=int(time.time()),
-    )
-    mocker.patch.object(Users, "get_user_by_id", return_value=mock_user)
 
     filter_instance = accounting.Filter()
 
-    with pytest.raises(HTTPException, match="Must be in the format of"):
-        _ = await filter_instance.get_request_account(request, "user-id", "username")
+    with pytest.raises(HTTPException, match="is not valid"):
+        _ = await filter_instance.get_request_account(request, "username")
 
 
-async def test_get_request_account_inactive_user_ldap_success(mocker):
-    """Test get_request_account with inactive user who is verified via LDAP"""
+async def test_get_request_account_no_url_no_projects(mocker):
+    """Test error when host has no project prefix and user has no P* groups"""
     scope = {
         "type": "http",
         "method": "GET",
         "path": "/api/v1/chat",
-        "headers": [(b"host", b"PZS0708.chat.example.com")],
+        "headers": [(b"host", b"chat.example.com")],
     }
     request = Request(scope=scope)
 
-    # User has groups but account is not in them (simulating stale cache)
-    groups = [
-        GroupModel(
-            id="1",
-            name="PZS0645",
-            user_id="user-id",
-            description="PZS0645",
-            created_at=1,
-            updated_at=1,
-        )
-    ]
-    mocker.patch.object(Groups, "get_groups_by_member_id", return_value=groups)
-
-    # User is inactive (last active 10 days ago)
-    mock_user = UserModel(
-        id="user-id",
-        email="test@example.com",
-        name="testuser",
-        role="user",
-        profile_image_url=None,
-        last_active_at=int(time.time()) - (10 * 24 * 60 * 60),  # 10 days ago
-        created_at=int(time.time()),
-        updated_at=int(time.time()),
-    )
-    mocker.patch.object(Users, "get_user_by_id", return_value=mock_user)
-
-    # Mock LDAP check to succeed
-    mock_ldap = mocker.patch.object(
-        accounting.Filter, "check_ldap_membership", return_value=True
-    )
+    # Mock get_ldap_groups to return no groups
+    mocker.patch.object(accounting.Filter, "get_ldap_groups", return_value=[])
 
     filter_instance = accounting.Filter()
-    filter_instance.valves.ldap_url = "ldap://ldap.example.com"
-    filter_instance.valves.ldap_base_dn = "dc=osc,dc=edu"
 
-    result = await filter_instance.get_request_account(request, "user-id", "testuser")
-
-    assert result == "PZS0708"
-    mock_ldap.assert_called_once_with("testuser", "PZS0708")
+    with pytest.raises(HTTPException, match="is not valid"):
+        _ = await filter_instance.get_request_account(request, "username")
 
 
-async def test_get_request_account_inactive_user_ldap_fails(mocker):
-    """Test get_request_account with inactive user who fails LDAP check"""
+async def test_get_request_account_not_account_name(mocker):
+    """Test error when host has request without P* prefix"""
     scope = {
         "type": "http",
         "method": "GET",
         "path": "/api/v1/chat",
-        "headers": [(b"host", b"PZS0708.chat.example.com")],
+        "headers": [(b"host", b"duo.chat.example.com")],
     }
     request = Request(scope=scope)
 
-    # User has groups but account is not in them
-    groups = [
-        GroupModel(
-            id="1",
-            name="PZS0645",
-            user_id="user-id",
-            description="PZS0645",
-            created_at=1,
-            updated_at=1,
-        )
-    ]
-    mocker.patch.object(Groups, "get_groups_by_member_id", return_value=groups)
-
-    # User is inactive
-    mock_user = UserModel(
-        id="user-id",
-        email="test@example.com",
-        name="testuser",
-        role="user",
-        profile_image_url=None,
-        last_active_at=int(time.time()) - (10 * 24 * 60 * 60),
-        created_at=int(time.time()),
-        updated_at=int(time.time()),
-    )
-    mocker.patch.object(Users, "get_user_by_id", return_value=mock_user)
-
-    # Mock LDAP check to fail
-    mock_ldap = mocker.patch.object(
-        accounting.Filter, "check_ldap_membership", return_value=False
+    # Mock get_ldap_groups to return multiple P* groups
+    mocker.patch.object(
+        accounting.Filter, "get_ldap_groups", return_value=["PZS0708", "PZS0645", "duo"]
     )
 
     filter_instance = accounting.Filter()
-    filter_instance.valves.ldap_url = "ldap://ldap.example.com"
-    filter_instance.valves.ldap_base_dn = "dc=osc,dc=edu"
 
-    with pytest.raises(HTTPException, match="neither in cached groups nor LDAP"):
-        await filter_instance.get_request_account(request, "user-id", "testuser")
+    with pytest.raises(HTTPException, match="is not valid"):
+        _ = await filter_instance.get_request_account(request, "username")
 
-    mock_ldap.assert_called_once_with("testuser", "PZS0708")
+
+async def test_get_request_account_user_not_in_account(mocker):
+    """Test error when user is not a member of the requested account"""
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/api/v1/chat",
+        "headers": [(b"host", b"PZS0645.chat.example.com")],
+    }
+    request = Request(scope=scope)
+
+    # Mock get_ldap_groups to return different account
+    mocker.patch.object(accounting.Filter, "get_ldap_groups", return_value=["PZS0708"])
+
+    filter_instance = accounting.Filter()
+
+    with pytest.raises(HTTPException, match="is not valid for user"):
+        _ = await filter_instance.get_request_account(request, "testuser")
 
 
 async def test_get_usage_top_level_usage(mocker):
@@ -1164,9 +893,7 @@ async def test_inlet_successful_call(mocker):
     # Verify the result is the same as the input body
     assert result == body
     # Verify get_request_account was called
-    mock_get_request_account.assert_called_once_with(
-        request, "test_user_id", "test_user"
-    )
+    mock_get_request_account.assert_called_once_with(request, "test_user")
 
 
 async def test_inlet_stream_request_modified(mocker):
@@ -1214,9 +941,7 @@ async def test_inlet_stream_request_modified(mocker):
     assert "stream_options" in result
     assert result["stream_options"]["include_usage"] is True
     # Verify get_request_account was called
-    mock_get_request_account.assert_called_once_with(
-        request, "test_user_id", "test_user"
-    )
+    mock_get_request_account.assert_called_once_with(request, "test_user")
 
 
 async def test_inlet_user_missing_info(mocker):
@@ -1299,9 +1024,7 @@ async def test_inlet_get_account_fails(mocker):
         )
 
     # Verify get_request_account was called
-    mock_get_request_account.assert_called_once_with(
-        request, "test_user_id", "test_user"
-    )
+    mock_get_request_account.assert_called_once_with(request, "test_user")
 
 
 async def test_outlet_successful_call(mocker, caplog):
@@ -1378,9 +1101,7 @@ async def test_outlet_successful_call(mocker, caplog):
     assert result == body
 
     # Verify all external functions were called
-    mock_get_request_account.assert_called_once_with(
-        request, "test_user_id", "test_user"
-    )
+    mock_get_request_account.assert_called_once_with(request, "test_user")
     mock_get_usage.assert_called_once_with(body)
     mock_get_metrics.assert_called_once_with(
         user_name="test_user",
@@ -1511,9 +1232,7 @@ async def test_outlet_get_account_fails(mocker, caplog):
     assert result == body
 
     # Verify get_request_account was called
-    mock_get_request_account.assert_called_once_with(
-        request, "test_user_id", "test_user"
-    )
+    mock_get_request_account.assert_called_once_with(request, "test_user")
     # Verify get_usage was not called
     mock_get_usage.assert_not_called()
 
@@ -1576,9 +1295,7 @@ async def test_outlet_usage_missing(mocker, caplog):
     assert result == body
 
     # Verify get_request_account was called
-    mock_get_request_account.assert_called_once_with(
-        request, "test_user_id", "test_user"
-    )
+    mock_get_request_account.assert_called_once_with(request, "test_user")
     # Verify get_usage was called
     mock_get_usage.assert_called_once_with(body)
 
@@ -1660,9 +1377,7 @@ async def test_outlet_total_tokens_is_none(mocker, caplog):
     assert result == body
 
     # Verify get_request_account was called
-    mock_get_request_account.assert_called_once_with(
-        request, "test_user_id", "test_user"
-    )
+    mock_get_request_account.assert_called_once_with(request, "test_user")
     # Verify get_usage was called
     mock_get_usage.assert_called_once_with(body)
 
@@ -1751,9 +1466,7 @@ async def test_outlet_get_metrics_fails(mocker, caplog):
     assert result == body
 
     # Verify get_request_account was called
-    mock_get_request_account.assert_called_once_with(
-        request, "test_user_id", "test_user"
-    )
+    mock_get_request_account.assert_called_once_with(request, "test_user")
     # Verify get_usage was called
     mock_get_usage.assert_called_once_with(body)
     # Verify get_metrics was called
@@ -1850,9 +1563,7 @@ async def test_outlet_send_metrics_fails(mocker, caplog):
     assert result == body
 
     # Verify all external functions were called
-    mock_get_request_account.assert_called_once_with(
-        request, "test_user_id", "test_user"
-    )
+    mock_get_request_account.assert_called_once_with(request, "test_user")
     mock_get_usage.assert_called_once_with(body)
     mock_get_metrics.assert_called_once_with(
         user_name="test_user",
