@@ -205,7 +205,7 @@ async def test_get_ldap_groups_not_configured(mocker, ldap_connection):
     mocker.patch("filters.accounting.Connection", return_value=ldap_connection)
 
     filter_instance = accounting.Filter()
-    # Don't set ldap_urls or ldap_base_dn
+    # Don't set ldap_urls
 
     result = await filter_instance.get_ldap_groups("testuser")
 

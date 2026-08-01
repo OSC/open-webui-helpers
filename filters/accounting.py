@@ -88,8 +88,8 @@ class Filter:
         Returns:
             List of group names the user is a member of
         """
-        if not self.valves.ldap_urls or not self.valves.ldap_base_dn:
-            self.logger.debug("LDAP not configured, skipping membership check")
+        if not self.valves.ldap_urls:
+            self.logger.error("LDAP not configured, skipping membership check")
             return []
 
         groups = []
@@ -104,7 +104,7 @@ class Filter:
 
             # Try anonymous bind
             if not connection.bind():
-                self.logger.warning(
+                self.logger.error(
                     f"Failed to bind to LDAP server anonymously: {self.valves.ldap_urls}"
                 )
                 return []
