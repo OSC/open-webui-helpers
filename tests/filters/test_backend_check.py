@@ -120,7 +120,7 @@ async def test_inlet_model_not_found_wait_enabled_scale_up_then_found(
     mocker.patch("asyncio.sleep", return_value=None)
 
     # Call inlet with caplog to capture logs
-    with caplog.at_level("INFO"):
+    with caplog.at_level("DEBUG"):
         result = await filter_instance.inlet(
             body=body,
             __user__=user_data,
@@ -212,7 +212,7 @@ async def test_inlet_model_not_found_oscchat_user_without_wait_header(
     mocker.patch("asyncio.sleep", return_value=None)
 
     # Call inlet with caplog to capture logs
-    with caplog.at_level("INFO"):
+    with caplog.at_level("DEBUG"):
         result = await filter_instance.inlet(
             body=body,
             __user__=user_data,
@@ -530,45 +530,6 @@ async def test_inlet_wait_loop_models_query_fails(httpx_mock, caplog, mocker):
     assert "/models" in str(requests[-1].url)
 
 
-async def test_inlet_from_webui_returns_body(httpx_mock):
-    """Test inlet when request is from WebUI, returns body directly without checking backend"""
-    # Set up mock request
-    scope = {
-        "type": "http",
-        "method": "POST",
-        "path": "/api/v1/chat",
-        "headers": [(b"host", b"example.com")],
-    }
-    request = Request(scope=scope)
-
-    # Set up metadata (from WebUI)
-    metadata = {"interface": "open-webui"}
-
-    # Set up model data
-    model_data = {"id": "gpt-4", "urlIdx": 0}
-
-    # Create filter instance
-    filter_instance = backend_check.Filter()
-
-    # Test body
-    body = {"model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}]}
-
-    # Call inlet - should return body directly without making any requests
-    result = await filter_instance.inlet(
-        body=body,
-        __user__=None,
-        __metadata__=metadata,
-        __request__=request,
-        __model__=model_data,
-    )
-
-    # Verify the result is the same as the input body
-    assert result == body
-
-    # Verify no HTTP requests were made
-    assert len(httpx_mock.get_requests()) == 0
-
-
 async def test_inlet_without_url_idx(mocker, caplog):
     """Test inlet when model doesn't have urlIdx - should raise HTTPException"""
     # Set up mock request
@@ -599,7 +560,7 @@ async def test_inlet_without_url_idx(mocker, caplog):
     Config.get = AsyncMock(return_value=["http://backend.example.com"])
 
     # Call inlet - should raise HTTPException with "Unable to determine backend URL"
-    with caplog.at_level("INFO"):
+    with caplog.at_level("DEBUG"):
         with pytest.raises(HTTPException, match="Unable to determine backend URL"):
             await filter_instance.inlet(
                 body=body,

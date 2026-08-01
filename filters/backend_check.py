@@ -37,22 +37,13 @@ class Filter:
         __request__: Request = None,
         __model__: dict = {},
     ) -> dict:
-        # Check if request is from WebUI
-        interface = __metadata__.get("interface") if __metadata__ else None
-
-        if interface == "open-webui":
-            # self.logger.info("Request from WebUI")
-            return body
-        # self.logger.info("Direct API request")
-
         idx = __model__.get("urlIdx", None)
         backends = await Config.get("openai.api_base_urls") or []
         backend_url = None
         if idx is not None and len(backends) > 0:
             backend_url = backends[idx]
-            # self.logger.info(f"Backend URL: {backend_url}")
         else:
-            self.logger.info(
+            self.logger.error(
                 f"Unable to determine model index. model-metadata={__model__}"
             )
             raise HTTPException(
@@ -76,7 +67,7 @@ class Filter:
 
         # Exit early if backend models detected
         if len(models.get("data", [])) > 0:
-            self.logger.info(
+            self.logger.debug(
                 f"Models detected on backend, skipping scale up: backend={backend_url}"
             )
             return body
@@ -98,21 +89,21 @@ dynamo_pending_request{{model="{metric_model}",namespace="{self.valves.k8_namesp
             r = await client.post(
                 metrics_url, content=metric_data, headers=metrics_header
             )
-            self.logger.info(
+            self.logger.debug(
                 f"Scale up request completed (metric): status={r.status_code} body={r.text}"
             )
         wait = __request__.headers.get(self.valves.wait_header, "false")
         should_wait = False
         if wait.lower() == "true":
             should_wait = True
-            self.logger.info(
+            self.logger.debug(
                 f"{self.valves.wait_header} header is true, wait: wait-header={wait}"
             )
         if user_name in self.valves.wait_users:
             should_wait = True
-            self.logger.info(f"User {user_name} is a wait user, waiting")
+            self.logger.debug(f"User {user_name} is a wait user, waiting")
         if not should_wait:
-            self.logger.info(
+            self.logger.debug(
                 f"{self.valves.wait_header} header is not true and not a wait user, skip wait, raise unavailable: wait-header={wait}"
             )
             raise unavailable
@@ -120,7 +111,7 @@ dynamo_pending_request{{model="{metric_model}",namespace="{self.valves.k8_namesp
         delay = 10
         retries = self.valves.wait_duration // delay
         for attempt in range(1, retries + 1):
-            self.logger.info(f"Attempt {attempt} of {retries}...")
+            self.logger.debug(f"Attempt {attempt} of {retries}...")
             wait_models = None
             async with httpx.AsyncClient() as client:
                 r = await client.get(f"{backend_url}/models", headers=headers)
@@ -128,15 +119,15 @@ dynamo_pending_request{{model="{metric_model}",namespace="{self.valves.k8_namesp
                     raise unavailable
                 wait_models = r.json()
             if len(wait_models.get("data", [])) > 0:
-                self.logger.info(
+                self.logger.debug(
                     f"Models available, breaking from wait loop: backend={backend_url} models={wait_models}"
                 )
                 return body
             # Non-blocking pause allows other tasks to run in the background
-            self.logger.info(f"Waiting {delay} seconds before retrying...")
+            self.logger.debug(f"Waiting {delay} seconds before retrying...")
             await asyncio.sleep(delay)
 
-        self.logger.info(f"Model wait timed out: backend={backend_url}")
+        self.logger.error(f"Model wait timed out: backend={backend_url}")
         raise unavailable
 
         # End logic, rest left in case becomes necessary in the future

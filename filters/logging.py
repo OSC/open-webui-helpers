@@ -29,10 +29,9 @@ class Filter:
         backends = await Config.get("openai.api_base_urls") or []
         if idx is not None and len(backends) > 0:
             backend_url = backends[idx]
-            # self.logger.info(f"Backend URL: {backend_url}")
         else:
             backend_url = "unknown"
-            self.logger.info(
+            self.logger.error(
                 f"Unable to determine model index. model-metadata={__model__}"
             )
 

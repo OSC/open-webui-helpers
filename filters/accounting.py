@@ -245,7 +245,7 @@ class Filter:
         path = f"job/{self.metric_job}/instance/{instance}"
         metrics_url = f"{self.valves.pushgateway_url}/metrics/{path}"
         metrics_header = {"Content-Type": "text/plain"}
-        self.logger.info(
+        self.logger.debug(
             f"Send metric value {metric_value} and requests value {requests_value} to {metrics_url}"
         )
         async with httpx.AsyncClient() as client:
@@ -257,7 +257,7 @@ class Filter:
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Unable to push accounting metric. status={r.status_code} body={r.text}",
                 )
-            self.logger.info(f"Metric sent: status={r.status_code} body={r.text}")
+            self.logger.debug(f"Metric sent: status={r.status_code} body={r.text}")
 
     async def send_error_metric(
         self,
@@ -271,7 +271,7 @@ class Filter:
         path = f"job/{self.error_metric_job}"
         metrics_url = f"{self.valves.pushgateway_url}/metrics/{path}"
         metrics_header = {"Content-Type": "text/plain"}
-        self.logger.info(f'Send error metric error="{error}" to {metrics_url}')
+        self.logger.debug(f'Send error metric error="{error}" to {metrics_url}')
         async with httpx.AsyncClient() as client:
             r = await client.post(
                 metrics_url, content=metric_data, headers=metrics_header
@@ -281,7 +281,9 @@ class Filter:
                     f'{self.error_prefix} msg="Unable to push error metric" status={r.status_code} body="{r.text}"'
                 )
                 return
-            self.logger.info(f"Error metric sent: status={r.status_code} body={r.text}")
+            self.logger.debug(
+                f"Error metric sent: status={r.status_code} body={r.text}"
+            )
 
     async def inlet(
         self,
@@ -293,14 +295,14 @@ class Filter:
     ) -> dict:
         user_name = (__user__ or {}).get("name")
         user_id = (__user__ or {}).get("id")
-        self.logger.info(f"Found user {user_name} and ID {user_id}")
+        self.logger.debug(f"Found user {user_name} and ID {user_id}")
         if not user_name or not user_id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="User name and User ID could not be determined",
             )
         account = await self.get_request_account(__request__, user_name)
-        self.logger.info(f"Found account {account}")
+        self.logger.debug(f"Found account {account}")
 
         # OpenAI-compatible streaming usage requires stream_options.include_usage=true.
         # Open WebUI may expose this as a per-model setting; we force it here to avoid
@@ -332,14 +334,14 @@ class Filter:
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="User name and User ID could not be determined",
                 )
-            self.logger.info(f"Found user {user_name} and ID {user_id}")
+            self.logger.debug(f"Found user {user_name} and ID {user_id}")
             account = await self.get_request_account(__request__, user_name)
-            self.logger.info(f"Found account {account}")
+            self.logger.debug(f"Found account {account}")
 
             chat_id = __metadata__.get("chat_id") or body.get("id", "unknown")
             model = __model__.get("id") if __model__ else body.get("model", "unknown")
             usage = await get_usage(body)
-            self.logger.info(f"Usage: chat-id={chat_id} model={model} usage={usage}")
+            self.logger.debug(f"Usage: chat-id={chat_id} model={model} usage={usage}")
             if usage is None:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -378,7 +380,7 @@ class Filter:
                 )
                 end_time = time.perf_counter()
                 elapsed_time = end_time - start_time
-                self.logger.info(f"Metrics took {elapsed_time}")
+                self.logger.debug(f"Metrics took {elapsed_time}")
         except Timeout:
             self.logger.error(
                 f'{self.error_prefix} msg="Timeout waiting for lock" id={chat_id} user={user_name} account={account} model={model}'
