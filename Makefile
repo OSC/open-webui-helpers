@@ -28,7 +28,7 @@ check-format: install
 
 .PHONY: update-requirements
 update-requirements:
-	docker run --rm -it ghcr.io/open-webui/open-webui:$(OPEN_WEBUI_VERSION) pip freeze > requirements-openwebui.txt
+	docker run --rm -i ghcr.io/open-webui/open-webui:$(OPEN_WEBUI_VERSION) pip freeze > requirements-openwebui.txt
 	$(SED) -i 's/\+cpu//g' requirements-openwebui.txt
 
 .PHONY: check-requirements
