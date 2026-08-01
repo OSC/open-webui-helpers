@@ -34,3 +34,7 @@ update-requirements:
 .PHONY: check-requirements
 check-requirements: update-requirements
 	git diff --exit-code
+
+.PHONY: print-python-version
+print-python-version:
+	docker run --rm -it ghcr.io/open-webui/open-webui:$(OPEN_WEBUI_VERSION) python --version
