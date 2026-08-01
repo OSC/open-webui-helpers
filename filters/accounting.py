@@ -55,9 +55,9 @@ class Filter:
             description="Directory for lock files",
         )
         # LDAP configuration for fallback verification
-        ldap_urls: list = Field(
-            default=[],
-            description="LDAP server URLs (e.g., ldap://ldap.example.com)",
+        ldap_urls: str = Field(
+            default="",
+            description="LDAP server URLs (e.g., ldap://ldap1.example.com,ldap://ldap2.example.com)",
         )
         ldap_base_dn: str = Field(
             default="dc=osc,dc=edu",
@@ -96,7 +96,7 @@ class Filter:
         try:
             # Connect to LDAP server
             pool = []
-            for url in self.valves.ldap_urls:
+            for url in self.valves.ldap_urls.split(","):
                 server = Server(url, get_info=ALL)
                 pool.append(server)
             pool = ServerPool(pool, pool_strategy=FIRST, active=True)
@@ -357,7 +357,7 @@ class Filter:
 
             instance = f"{model}-{account}-{user_name}"
             lock_file_path = os.path.join(self.valves.lock_dir, f"{instance}.lock")
-            lock = AsyncFileLock(lock_file_path, preserve_lock_file=False)
+            lock = AsyncFileLock(lock_file_path)
             async with lock:
                 start_time = time.perf_counter()
                 metric_value, requests_value = await self.get_metrics(

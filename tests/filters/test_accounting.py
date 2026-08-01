@@ -139,7 +139,7 @@ async def test_get_ldap_groups_success(mocker, ldap_connection):
     mocker.patch("filters.accounting.Connection", return_value=ldap_connection)
 
     filter_instance = accounting.Filter()
-    filter_instance.valves.ldap_urls = ["ldap://mock"]
+    filter_instance.valves.ldap_urls = "ldap://mock"
     filter_instance.valves.ldap_base_dn = "dc=osc,dc=edu"
 
     result = await filter_instance.get_ldap_groups("testuser")
@@ -156,7 +156,7 @@ async def test_get_ldap_groups_user_not_in_any_group(mocker, ldap_connection):
     mocker.patch("filters.accounting.Connection", return_value=ldap_connection)
 
     filter_instance = accounting.Filter()
-    filter_instance.valves.ldap_urls = ["ldap://mock"]
+    filter_instance.valves.ldap_urls = "ldap://mock"
     filter_instance.valves.ldap_base_dn = "dc=osc,dc=edu"
 
     result = await filter_instance.get_ldap_groups("nonexistentuser")
@@ -174,7 +174,7 @@ async def test_get_ldap_groups_bind_fails(mocker):
     mock_connection.bind.return_value = False
 
     filter_instance = accounting.Filter()
-    filter_instance.valves.ldap_urls = ["ldap://mock"]
+    filter_instance.valves.ldap_urls = "ldap://mock"
     filter_instance.valves.ldap_base_dn = "dc=osc,dc=edu"
 
     result = await filter_instance.get_ldap_groups("testuser")
@@ -188,7 +188,7 @@ async def test_get_ldap_groups_exception(mocker, ldap_connection, caplog):
     mocker.patch("filters.accounting.Connection", return_value=ldap_connection)
 
     filter_instance = accounting.Filter()
-    filter_instance.valves.ldap_urls = ["ldap://mock"]
+    filter_instance.valves.ldap_urls = "ldap://mock"
     filter_instance.valves.ldap_base_dn = (
         "invalid-dn"  # Use invalid DN to trigger exception
     )
