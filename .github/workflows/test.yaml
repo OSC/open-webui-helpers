@@ -25,5 +25,8 @@ jobs:
       - name: Check format
         run: make check-format
 
+      - name: Check requirements
+        run: make check-requirements
+
       - name: Test
         run: make test
