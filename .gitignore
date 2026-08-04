@@ -1,0 +1,4 @@
+.pip_installed
+/.venv
+__pycache__
+/.coverage
