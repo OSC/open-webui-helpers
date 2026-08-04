@@ -234,6 +234,9 @@ class Filter:
         model: str,
         instance: str,
     ) -> None:
+        # model_bytes = model.encode("utf-8")
+        # model_base64 = base64.urlsafe_b64encode(model_bytes)
+        # metric_model = model_base64.decode("utf-8")
         metric_data = f"""
 # HELP {self.metric_name} K8 token accounting record
 # TYPE {self.metric_name} counter
@@ -340,6 +343,7 @@ class Filter:
 
             chat_id = __metadata__.get("chat_id") or body.get("id", "unknown")
             model = __model__.get("id") if __model__ else body.get("model", "unknown")
+            model_escaped = model.replace("/", "-")
             usage = await get_usage(body)
             self.logger.debug(f"Usage: chat-id={chat_id} model={model} usage={usage}")
             if usage is None:
@@ -357,7 +361,7 @@ class Filter:
                 f"Process token usage. id={chat_id} user={user_name} account={account} model={model} tokens={tokens}"
             )
 
-            instance = f"{model}-{account}-{user_name}"
+            instance = f"{model_escaped}-{account}-{user_name}"
             lock_file_path = os.path.join(self.valves.lock_dir, f"{instance}.lock")
             lock = AsyncFileLock(lock_file_path)
             async with lock:
@@ -365,9 +369,6 @@ class Filter:
                 metric_value, requests_value = await self.get_metrics(instance=instance)
                 metric_value = int(metric_value) + int(tokens)
                 requests_value = int(requests_value) + 1
-                # model_bytes = model.encode("utf-8")
-                # model_base64 = base64.urlsafe_b64encode(model_bytes)
-                # metric_model = model_base64.decode("utf-8")
                 await self.send_metrics(
                     metric_value=metric_value,
                     requests_value=requests_value,

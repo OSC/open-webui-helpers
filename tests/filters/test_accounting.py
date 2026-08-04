@@ -1039,7 +1039,7 @@ async def test_outlet_successful_call(mocker, caplog):
     metadata = {"chat_id": "chat_123"}
 
     # Set up model data
-    model_data = {"id": "gpt-4"}
+    model_data = {"id": "ai/gpt-4"}
 
     # Create filter instance
     filter_instance = accounting.Filter()
@@ -1047,7 +1047,7 @@ async def test_outlet_successful_call(mocker, caplog):
     # Test body with usage data
     body = {
         "id": "msg_123",
-        "model": "gpt-4",
+        "model": "ai/gpt-4",
         "messages": [
             {"role": "user", "content": "Hello"},
             {
@@ -1089,15 +1089,15 @@ async def test_outlet_successful_call(mocker, caplog):
     mock_get_request_account.assert_called_once_with(request, "test_user")
     mock_get_usage.assert_called_once_with(body)
     mock_get_metrics.assert_called_once_with(
-        instance="gpt-4-PZS0708-test_user",
+        instance="ai-gpt-4-PZS0708-test_user",
     )
     mock_send_metrics.assert_called_once_with(
         metric_value=300,  # 100 + 200
         requests_value=6,  # 5 + 1
         user_name="test_user",
         account="PZS0708",
-        model="gpt-4",
-        instance="gpt-4-PZS0708-test_user",
+        model="ai/gpt-4",
+        instance="ai-gpt-4-PZS0708-test_user",
     )
     # Verify send_error_metric was NOT called on success
     mock_send_error_metric.assert_not_called()
