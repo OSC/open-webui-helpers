@@ -174,7 +174,7 @@ class Filter:
         return account
 
     async def get_metrics(
-        self, user_name: str, account: str, model: str, instance: str
+        self, instance: str
     ) -> tuple[int, int]:
         headers = {
             "Content-Type": "application/json",
@@ -212,14 +212,14 @@ class Filter:
                     metric = metric_data.get("metrics", [])[0]
                     metric_value = int(metric.get("value", 0))
                     self.logger.debug(
-                        f"Existing metric value. value={metric_value} user={user_name} account={account} model={model}"
+                        f"Existing metric value. value={metric_value}"
                     )
                 requests_data = data.get(self.requests_metric_name, {})
                 if requests_data:
                     requests = requests_data.get("metrics", [])[0]
                     requests_value = int(requests.get("value", 0))
                     self.logger.debug(
-                        f"Existing requests value. value={requests_value} user={user_name} account={account} model={model}"
+                        f"Existing requests value. value={requests_value}"
                     )
                 if metric_data and requests_data:
                     break
@@ -362,9 +362,7 @@ class Filter:
             lock = AsyncFileLock(lock_file_path)
             async with lock:
                 start_time = time.perf_counter()
-                metric_value, requests_value = await self.get_metrics(
-                    user_name=user_name, account=account, model=model, instance=instance
-                )
+                metric_value, requests_value = await self.get_metrics(instance=instance)
                 metric_value = int(metric_value) + int(tokens)
                 requests_value = int(requests_value) + 1
                 # model_bytes = model.encode("utf-8")

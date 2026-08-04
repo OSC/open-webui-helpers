@@ -584,9 +584,6 @@ async def test_get_metrics_both_metrics_found(httpx_mock):
 
     # Call get_metrics
     result = await filter_instance.get_metrics(
-        user_name="username",
-        account="PZS0708",
-        model="gpt-4",
         instance="gpt-4-PZS0708-username",
     )
 
@@ -619,9 +616,6 @@ async def test_get_metrics_only_metric_name_found(httpx_mock):
 
     # Call get_metrics
     result = await filter_instance.get_metrics(
-        user_name="username",
-        account="PZS0708",
-        model="gpt-4",
         instance="gpt-4-PZS0708-username",
     )
 
@@ -650,9 +644,6 @@ async def test_get_metrics_no_metrics_found(httpx_mock):
 
     # Call get_metrics
     result = await filter_instance.get_metrics(
-        user_name="username",
-        account="PZS0708",
-        model="gpt-4",
         instance="gpt-4-PZS0708-username",
     )
 
@@ -691,9 +682,6 @@ async def test_get_metrics_job_not_found_in_data(httpx_mock, caplog):
     # Call get_metrics
     with caplog.at_level("DEBUG"):
         result = await filter_instance.get_metrics(
-            user_name="username",
-            account="PZS0708",
-            model="gpt-4",
             instance="gpt-4-PZS0708-username",
         )
 
@@ -720,9 +708,6 @@ async def test_get_metrics_client_not_successful(httpx_mock):
         HTTPException, match="Unable to query existing accounting metrics"
     ):
         await filter_instance.get_metrics(
-            user_name="username",
-            account="PZS0708",
-            model="gpt-4",
             instance="gpt-4-PZS0708-username",
         )
 
@@ -1104,9 +1089,6 @@ async def test_outlet_successful_call(mocker, caplog):
     mock_get_request_account.assert_called_once_with(request, "test_user")
     mock_get_usage.assert_called_once_with(body)
     mock_get_metrics.assert_called_once_with(
-        user_name="test_user",
-        account="PZS0708",
-        model="gpt-4",
         instance="gpt-4-PZS0708-test_user",
     )
     mock_send_metrics.assert_called_once_with(
@@ -1471,9 +1453,6 @@ async def test_outlet_get_metrics_fails(mocker, caplog):
     mock_get_usage.assert_called_once_with(body)
     # Verify get_metrics was called
     mock_get_metrics.assert_called_once_with(
-        user_name="test_user",
-        account="PZS0708",
-        model="gpt-4",
         instance="gpt-4-PZS0708-test_user",
     )
     # Verify send_metrics was not called
@@ -1566,9 +1545,6 @@ async def test_outlet_send_metrics_fails(mocker, caplog):
     mock_get_request_account.assert_called_once_with(request, "test_user")
     mock_get_usage.assert_called_once_with(body)
     mock_get_metrics.assert_called_once_with(
-        user_name="test_user",
-        account="PZS0708",
-        model="gpt-4",
         instance="gpt-4-PZS0708-test_user",
     )
     mock_send_metrics.assert_called_once_with(
