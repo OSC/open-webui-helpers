@@ -173,9 +173,7 @@ class Filter:
             )
         return account
 
-    async def get_metrics(
-        self, instance: str
-    ) -> tuple[int, int]:
+    async def get_metrics(self, instance: str) -> tuple[int, int]:
         headers = {
             "Content-Type": "application/json",
         }
@@ -211,9 +209,7 @@ class Filter:
                 if metric_data:
                     metric = metric_data.get("metrics", [])[0]
                     metric_value = int(metric.get("value", 0))
-                    self.logger.debug(
-                        f"Existing metric value. value={metric_value}"
-                    )
+                    self.logger.debug(f"Existing metric value. value={metric_value}")
                 requests_data = data.get(self.requests_metric_name, {})
                 if requests_data:
                     requests = requests_data.get("metrics", [])[0]
