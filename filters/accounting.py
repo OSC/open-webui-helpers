@@ -200,7 +200,7 @@ class Filter:
                     )
                     continue
                 metric_instance = data.get("labels", {}).get("instance", None)
-                if job != self.metric_job and metric_instance != instance:
+                if job != self.metric_job or metric_instance != instance:
                     self.logger.debug(
                         f"Skip metric job {job} instance {metric_instance}"
                     )
@@ -209,13 +209,15 @@ class Filter:
                 if metric_data:
                     metric = metric_data.get("metrics", [])[0]
                     metric_value = int(metric.get("value", 0))
-                    self.logger.debug(f"Existing metric value. value={metric_value}")
+                    self.logger.debug(
+                        f"Existing metric value. value={metric_value} data={data}"
+                    )
                 requests_data = data.get(self.requests_metric_name, {})
                 if requests_data:
                     requests = requests_data.get("metrics", [])[0]
                     requests_value = int(requests.get("value", 0))
                     self.logger.debug(
-                        f"Existing requests value. value={requests_value}"
+                        f"Existing requests value. value={requests_value} data={data}"
                     )
                 if metric_data and requests_data:
                     break
@@ -292,6 +294,7 @@ class Filter:
         __request__: Request = None,
         __model__: dict = {},
     ) -> dict:
+        self.logger.setLevel(getattr(logging, self.valves.log_level.upper()))
         user_name = (__user__ or {}).get("name")
         user_id = (__user__ or {}).get("id")
         self.logger.debug(f"Found user {user_name} and ID {user_id}")
@@ -324,6 +327,7 @@ class Filter:
         __request__: Request = None,
         __model__: dict = {},
     ) -> dict:
+        self.logger.setLevel(getattr(logging, self.valves.log_level.upper()))
         error = None
         try:
             user_name = (__user__ or {}).get("name")
@@ -353,9 +357,6 @@ class Filter:
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Request lacks token usage in the response: {usage}",
                 )
-            self.logger.info(
-                f"Process token usage. id={chat_id} user={user_name} account={account} model={model} tokens={tokens}"
-            )
 
             instance = f"{model_escaped}-{account}-{user_name}"
             lock_file_path = os.path.join(self.valves.lock_dir, f"{instance}.lock")
@@ -363,11 +364,15 @@ class Filter:
             async with lock:
                 start_time = time.perf_counter()
                 metric_value, requests_value = await self.get_metrics(instance=instance)
-                metric_value = int(metric_value) + int(tokens)
-                requests_value = int(requests_value) + 1
+                metric_total = int(metric_value) + int(tokens)
+                requests_total = int(requests_value) + 1
+                self.logger.info(
+                    f"Process token usage. user={user_name} account={account} model={model} tokens={tokens}"
+                    + f" existing-value={metric_value} total-value={metric_total} existing-requests={requests_value} total-requests={requests_total}"
+                )
                 await self.send_metrics(
-                    metric_value=metric_value,
-                    requests_value=requests_value,
+                    metric_value=metric_total,
+                    requests_value=requests_total,
                     user_name=user_name,
                     account=account,
                     model=model,
