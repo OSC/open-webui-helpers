@@ -569,11 +569,19 @@ async def test_get_metrics_both_metrics_found(httpx_mock):
                 {
                     "labels": {
                         "job": "k8-token-accounting",
+                        "instance": "gpt-4-PZS0708-test",
+                    },
+                    "osc_k8_accounting_tokens_total": {"metrics": [{"value": "200"}]},
+                    "osc_k8_accounting_requests_total": {"metrics": [{"value": "2"}]},
+                },
+                {
+                    "labels": {
+                        "job": "k8-token-accounting",
                         "instance": "gpt-4-PZS0708-username",
                     },
                     "osc_k8_accounting_tokens_total": {"metrics": [{"value": "150"}]},
                     "osc_k8_accounting_requests_total": {"metrics": [{"value": "5"}]},
-                }
+                },
             ]
         },
         status_code=200,
@@ -1069,7 +1077,7 @@ async def test_outlet_successful_call(mocker, caplog):
         "completion_tokens": 80,
         "total_tokens": 200,
     }
-    mock_get_metrics.return_value = (100, 5)  # (metric_value, requests_value)
+    mock_get_metrics.return_value = (0, 0)  # (metric_value, requests_value)
     mock_send_metrics.return_value = None
 
     # Call outlet
@@ -1092,8 +1100,8 @@ async def test_outlet_successful_call(mocker, caplog):
         instance="ai-gpt-4-PZS0708-test_user",
     )
     mock_send_metrics.assert_called_once_with(
-        metric_value=300,  # 100 + 200
-        requests_value=6,  # 5 + 1
+        metric_value=200,  # 0 + 200
+        requests_value=1,  # 0 + 1
         user_name="test_user",
         account="PZS0708",
         model="ai/gpt-4",
