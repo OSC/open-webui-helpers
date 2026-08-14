@@ -44,7 +44,7 @@ class Filter:
             backend_url = backends[idx]
         else:
             self.logger.error(
-                f"Unable to determine model index. model-metadata={__model__}"
+                "Unable to determine model index.", extra={"model_metadata": __model__}
             )
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -83,7 +83,8 @@ dynamo_pending_request{{model="{metric_model}",namespace="{self.valves.k8_namesp
         metrics_url = f"{self.valves.pushgateway_url}/metrics/job/{self.valves.k8_namespace}-{metric_model}"
         metrics_header = {"Content-Type": "text/plain"}
         self.logger.info(
-            f"Scale up request: user={user_name} model={metric_model} backend={backend_url}"
+            "Scale up request",
+            extra={"user": user_name, "model": metric_model, "backend": backend_url},
         )
         async with httpx.AsyncClient() as client:
             r = await client.post(
@@ -127,7 +128,7 @@ dynamo_pending_request{{model="{metric_model}",namespace="{self.valves.k8_namesp
             self.logger.debug(f"Waiting {delay} seconds before retrying...")
             await asyncio.sleep(delay)
 
-        self.logger.error(f"Model wait timed out: backend={backend_url}")
+        self.logger.error("Model wait timed out", extra={"backend": backend_url})
         raise unavailable
 
         # End logic, rest left in case becomes necessary in the future

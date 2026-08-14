@@ -599,6 +599,44 @@ async def test_get_metrics_both_metrics_found(httpx_mock):
     assert result == (150, 5)
 
 
+async def test_get_metrics_scientific_notation(httpx_mock):
+    """Test get_metrics handles scientific notation values (e.g., '1.025539e+06')"""
+    # Configure httpx_mock to return a successful response with scientific notation
+    httpx_mock.add_response(
+        url="http://pushgateway.prometheus.svc:9091/api/v1/metrics",
+        json={
+            "data": [
+                {
+                    "labels": {
+                        "job": "k8-token-accounting",
+                        "instance": "gpt-4-PZS0708-username",
+                    },
+                    "osc_k8_accounting_tokens_total": {
+                        "metrics": [{"value": "1.025539e+06"}]
+                    },
+                    "osc_k8_accounting_requests_total": {
+                        "metrics": [{"value": "1.5e+02"}]
+                    },
+                }
+            ]
+        },
+        status_code=200,
+    )
+
+    # Create filter instance
+    filter_instance = accounting.Filter()
+
+    # Call get_metrics
+    result = await filter_instance.get_metrics(
+        instance="gpt-4-PZS0708-username",
+    )
+
+    # Assert result - scientific notation should be converted correctly
+    # 1.025539e+06 = 1025539
+    # 1.5e+02 = 150
+    assert result == (1025539, 150)
+
+
 async def test_get_metrics_only_metric_name_found(httpx_mock):
     """Test get_metrics when only metric_name is found"""
     # Configure httpx_mock to return a successful response with only one metric
@@ -820,9 +858,9 @@ async def test_send_error_metric_success(httpx_mock):
     assert request.headers["Content-Type"] == "text/plain"
     # Check that the payload contains the expected metric data
     payload = request.content.decode()
-    assert "# HELP osc_k8_accounting_error K8 token accounting error" in payload
-    assert "# TYPE osc_k8_accounting_error gauge" in payload
-    assert 'osc_k8_accounting_error{error="Test error message"} 1' in payload
+    assert "# HELP osc_k8_accounting_tokens_error K8 token accounting error" in payload
+    assert "# TYPE osc_k8_accounting_tokens_error gauge" in payload
+    assert 'osc_k8_accounting_tokens_error{error="Test error message"} 1' in payload
 
 
 async def test_send_error_metric_failure(httpx_mock, caplog):
@@ -843,8 +881,8 @@ async def test_send_error_metric_failure(httpx_mock, caplog):
 
     # Verify the error message was logged for the push failure
     assert "Unable to push error metric" in caplog.text
-    assert "status=500" in caplog.text
-    assert 'body="Internal Server Error"' in caplog.text
+    assert caplog.records[0].status == 500
+    assert caplog.records[0].body == "Internal Server Error"
 
 
 async def test_inlet_successful_call(mocker):
