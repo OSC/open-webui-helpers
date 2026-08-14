@@ -49,12 +49,12 @@ async def test_inlet_successful_call(mocker, caplog):
     assert result == body
 
     # Verify log message was produced
-    assert "Request:" in caplog.text
-    assert "user=test_user" in caplog.text
-    assert "path=/api/v1/chat" in caplog.text
-    assert "model=gpt-4" in caplog.text
-    assert "backend=http://backend.example.com" in caplog.text
-    assert "chat_id=chat_123" in caplog.text
+    assert "Request" in caplog.text
+    assert caplog.records[0].user == "test_user"
+    assert caplog.records[0].path == "/api/v1/chat"
+    assert caplog.records[0].model == "gpt-4"
+    assert caplog.records[0].backend == "http://backend.example.com"
+    assert caplog.records[0].chat_id == "chat_123"
 
 
 async def test_inlet_without_metadata(mocker, caplog):
@@ -103,12 +103,12 @@ async def test_inlet_without_metadata(mocker, caplog):
     assert result == body
 
     # Verify log message was produced
-    assert "Request:" in caplog.text
-    assert "user=test_user" in caplog.text
-    assert "path=/api/v1/chat" in caplog.text
-    assert "model=gpt-4" in caplog.text
-    assert "backend=unknown" in caplog.text
-    assert "chat_id=none" in caplog.text
+    assert "Request" in caplog.text
+    assert caplog.records[1].user == "test_user"
+    assert caplog.records[1].path == "/api/v1/chat"
+    assert caplog.records[1].model == "gpt-4"
+    assert caplog.records[1].backend == "unknown"
+    assert caplog.records[1].chat_id == "none"
 
 
 async def test_inlet_without_user(mocker, caplog):
@@ -157,9 +157,9 @@ async def test_inlet_without_user(mocker, caplog):
     assert result == body
 
     # Verify log message was produced
-    assert "Request:" in caplog.text
-    assert "user=anonymous" in caplog.text
-    assert "path=/api/v1/chat" in caplog.text
+    assert "Request" in caplog.text
+    assert caplog.records[1].user == "anonymous"
+    assert caplog.records[1].path == "/api/v1/chat"
 
 
 async def test_inlet_without_model(mocker, caplog):
@@ -208,9 +208,9 @@ async def test_inlet_without_model(mocker, caplog):
     assert result == body
 
     # Verify log message was produced
-    assert "Request:" in caplog.text
-    assert "user=test_user" in caplog.text
-    assert "model=gpt-4" in caplog.text
+    assert "Request" in caplog.text
+    assert caplog.records[1].user == "test_user"
+    assert caplog.records[1].model == "gpt-4"
 
 
 async def test_inlet_without_model_idx(mocker, caplog):
@@ -260,7 +260,7 @@ async def test_inlet_without_model_idx(mocker, caplog):
 
     # Verify log message about unable to determine model index
     assert "Unable to determine model index" in caplog.text
-    assert "model-metadata=" in caplog.text
+    assert caplog.records[0].model_metadata == model_data
 
 
 async def test_inlet_with_backend_url(mocker, caplog):
@@ -311,4 +311,4 @@ async def test_inlet_with_backend_url(mocker, caplog):
     assert result == body
 
     # Verify log message with correct backend URL
-    assert "backend=http://backend2.example.com" in caplog.text
+    assert caplog.records[0].backend == "http://backend2.example.com"

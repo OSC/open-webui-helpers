@@ -71,7 +71,7 @@ class Filter:
     def __init__(self):
         self.valves = self.Valves()
         self.logger = logging.getLogger("accounting")
-        self.error_prefix = "process=accounting-error"
+        self.error_tag = "accounting-error"
         self.metric_job = "k8-token-accounting"
         self.metric_name = "osc_k8_accounting_tokens_total"
         self.requests_metric_name = "osc_k8_accounting_requests_total"
@@ -279,7 +279,12 @@ class Filter:
             )
             if not r.is_success:
                 self.logger.error(
-                    f'{self.error_prefix} msg="Unable to push error metric" status={r.status_code} body="{r.text}"'
+                    "Unable to push error metric",
+                    extra={
+                        "error_tag": self.error_tag,
+                        "status": r.status_code,
+                        "body": r.text,
+                    },
                 )
                 return
             self.logger.debug(
@@ -367,8 +372,17 @@ class Filter:
                 metric_total = float(metric_value) + float(tokens)
                 requests_total = float(requests_value) + 1
                 self.logger.info(
-                    f"Process token usage. user={user_name} account={account} model={model} tokens={tokens}"
-                    + f" existing-value={metric_value} total-value={metric_total} existing-requests={requests_value} total-requests={requests_total}"
+                    "Process token usage.",
+                    extra={
+                        "user": user_name,
+                        "account": account,
+                        "model": model,
+                        "tokens": tokens,
+                        "existing_value": metric_value,
+                        "total_value": metric_total,
+                        "existing_requests": requests_value,
+                        "total_requests": requests_total,
+                    },
                 )
                 await self.send_metrics(
                     metric_value=metric_total,
@@ -383,15 +397,23 @@ class Filter:
                 self.logger.debug(f"Metrics took {elapsed_time}")
         except Timeout:
             self.logger.error(
-                f'{self.error_prefix} msg="Timeout waiting for lock" id={chat_id} user={user_name} account={account} model={model}'
+                "Timeout waiting for lock",
+                extra={
+                    "error_tag": self.error_tag,
+                    "id": chat_id,
+                    "user": user_name,
+                    "account": account,
+                    "model": model,
+                },
             )
             error = "lock timeout"
         except HTTPException as e:
-            self.logger.error(f'{self.error_prefix} msg="{e.detail}"')
+            self.logger.error(e.detail, extra={"error_tag": self.error_tag})
             error = e.detail
         except Exception as e:
             self.logger.exception(
-                f'{self.error_prefix} msg="An unhandled exception occurred {e}"'
+                f"An unhandled exception occurred {e}",
+                extra={"error_tag": self.error_tag},
             )
             error = "exception"
         finally:

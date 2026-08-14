@@ -572,4 +572,4 @@ async def test_inlet_without_url_idx(mocker, caplog):
 
     # Verify the warning was logged
     assert "Unable to determine model index" in caplog.text
-    assert "model-metadata=" in caplog.text
+    assert caplog.records[0].model_metadata == model_data

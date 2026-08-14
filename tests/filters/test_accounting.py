@@ -881,8 +881,8 @@ async def test_send_error_metric_failure(httpx_mock, caplog):
 
     # Verify the error message was logged for the push failure
     assert "Unable to push error metric" in caplog.text
-    assert "status=500" in caplog.text
-    assert 'body="Internal Server Error"' in caplog.text
+    assert caplog.records[0].status == 500
+    assert caplog.records[0].body == "Internal Server Error"
 
 
 async def test_inlet_successful_call(mocker):

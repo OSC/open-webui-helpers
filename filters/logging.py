@@ -32,11 +32,18 @@ class Filter:
         else:
             backend_url = "unknown"
             self.logger.error(
-                f"Unable to determine model index. model-metadata={__model__}"
+                "Unable to determine model index", extra={"model_metadata": __model__}
             )
 
         self.logger.info(
-            f"Request: user={user_name} path={url_path} model={model} backend={backend_url} chat_id={chat_id or 'none'}"
+            "Request",
+            extra={
+                "user": user_name,
+                "path": url_path,
+                "model": model,
+                "backend": backend_url,
+                "chat_id": chat_id or "none",
+            },
         )
 
         return body
