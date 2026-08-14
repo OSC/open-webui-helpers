@@ -208,14 +208,14 @@ class Filter:
                 metric_data = data.get(self.metric_name, {})
                 if metric_data:
                     metric = metric_data.get("metrics", [])[0]
-                    metric_value = int(metric.get("value", 0))
+                    metric_value = int(float(metric.get("value", 0)))
                     self.logger.debug(
                         f"Existing metric value. value={metric_value} data={data}"
                     )
                 requests_data = data.get(self.requests_metric_name, {})
                 if requests_data:
                     requests = requests_data.get("metrics", [])[0]
-                    requests_value = int(requests.get("value", 0))
+                    requests_value = int(float(requests.get("value", 0)))
                     self.logger.debug(
                         f"Existing requests value. value={requests_value} data={data}"
                     )

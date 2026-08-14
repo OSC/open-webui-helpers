@@ -599,6 +599,44 @@ async def test_get_metrics_both_metrics_found(httpx_mock):
     assert result == (150, 5)
 
 
+async def test_get_metrics_scientific_notation(httpx_mock):
+    """Test get_metrics handles scientific notation values (e.g., '1.025539e+06')"""
+    # Configure httpx_mock to return a successful response with scientific notation
+    httpx_mock.add_response(
+        url="http://pushgateway.prometheus.svc:9091/api/v1/metrics",
+        json={
+            "data": [
+                {
+                    "labels": {
+                        "job": "k8-token-accounting",
+                        "instance": "gpt-4-PZS0708-username",
+                    },
+                    "osc_k8_accounting_tokens_total": {
+                        "metrics": [{"value": "1.025539e+06"}]
+                    },
+                    "osc_k8_accounting_requests_total": {
+                        "metrics": [{"value": "1.5e+02"}]
+                    },
+                }
+            ]
+        },
+        status_code=200,
+    )
+
+    # Create filter instance
+    filter_instance = accounting.Filter()
+
+    # Call get_metrics
+    result = await filter_instance.get_metrics(
+        instance="gpt-4-PZS0708-username",
+    )
+
+    # Assert result - scientific notation should be converted correctly
+    # 1.025539e+06 = 1025539
+    # 1.5e+02 = 150
+    assert result == (1025539, 150)
+
+
 async def test_get_metrics_only_metric_name_found(httpx_mock):
     """Test get_metrics when only metric_name is found"""
     # Configure httpx_mock to return a successful response with only one metric
