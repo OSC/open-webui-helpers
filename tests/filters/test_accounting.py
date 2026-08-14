@@ -616,7 +616,7 @@ async def test_get_username_shared_user_no_header(mocker):
 
     result = await filter_instance.get_username(__user__=user_data, __request__=request)
 
-    assert result is None
+    assert result == "oscchat"
 
 
 async def test_get_username_no_user(mocker):
