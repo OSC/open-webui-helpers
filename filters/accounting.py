@@ -76,7 +76,7 @@ class Filter:
         self.metric_name = "osc_k8_accounting_tokens_total"
         self.requests_metric_name = "osc_k8_accounting_requests_total"
         self.error_metric_job = "token-accounting-error"
-        self.error_metric_name = "osc_k8_accounting_error"
+        self.error_metric_name = "osc_k8_accounting_tokens_error"
 
     async def get_ldap_groups(self, username: str) -> list[str]:
         """

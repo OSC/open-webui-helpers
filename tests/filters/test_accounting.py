@@ -858,9 +858,9 @@ async def test_send_error_metric_success(httpx_mock):
     assert request.headers["Content-Type"] == "text/plain"
     # Check that the payload contains the expected metric data
     payload = request.content.decode()
-    assert "# HELP osc_k8_accounting_error K8 token accounting error" in payload
-    assert "# TYPE osc_k8_accounting_error gauge" in payload
-    assert 'osc_k8_accounting_error{error="Test error message"} 1' in payload
+    assert "# HELP osc_k8_accounting_tokens_error K8 token accounting error" in payload
+    assert "# TYPE osc_k8_accounting_tokens_error gauge" in payload
+    assert 'osc_k8_accounting_tokens_error{error="Test error message"} 1' in payload
 
 
 async def test_send_error_metric_failure(httpx_mock, caplog):
