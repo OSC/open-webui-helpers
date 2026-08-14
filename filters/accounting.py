@@ -173,7 +173,7 @@ class Filter:
             )
         return account
 
-    async def get_metrics(self, instance: str) -> tuple[int, int]:
+    async def get_metrics(self, instance: str) -> tuple[float, float]:
         headers = {
             "Content-Type": "application/json",
         }
@@ -208,25 +208,25 @@ class Filter:
                 metric_data = data.get(self.metric_name, {})
                 if metric_data:
                     metric = metric_data.get("metrics", [])[0]
-                    metric_value = int(float(metric.get("value", 0)))
+                    metric_value = float(metric.get("value", 0))
                     self.logger.debug(
                         f"Existing metric value. value={metric_value} data={data}"
                     )
                 requests_data = data.get(self.requests_metric_name, {})
                 if requests_data:
                     requests = requests_data.get("metrics", [])[0]
-                    requests_value = int(float(requests.get("value", 0)))
+                    requests_value = float(requests.get("value", 0))
                     self.logger.debug(
                         f"Existing requests value. value={requests_value} data={data}"
                     )
                 if metric_data and requests_data:
                     break
-        return int(metric_value), int(requests_value)
+        return float(metric_value), float(requests_value)
 
     async def send_metrics(
         self,
-        metric_value: int,
-        requests_value: int,
+        metric_value: float,
+        requests_value: float,
         user_name: str,
         account: str,
         model: str,
@@ -364,8 +364,8 @@ class Filter:
             async with lock:
                 start_time = time.perf_counter()
                 metric_value, requests_value = await self.get_metrics(instance=instance)
-                metric_total = int(metric_value) + int(tokens)
-                requests_total = int(requests_value) + 1
+                metric_total = float(metric_value) + float(tokens)
+                requests_total = float(requests_value) + 1
                 self.logger.info(
                     f"Process token usage. user={user_name} account={account} model={model} tokens={tokens}"
                     + f" existing-value={metric_value} total-value={metric_total} existing-requests={requests_value} total-requests={requests_total}"
