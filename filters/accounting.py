@@ -71,12 +71,20 @@ class Filter:
     def __init__(self):
         self.valves = self.Valves()
         self.logger = logging.getLogger("accounting")
+        self.shared_users = ["oscchat"]
+        self.username_header = "x-osc-user"
         self.error_tag = "accounting-error"
         self.metric_job = "k8-token-accounting"
         self.metric_name = "osc_k8_accounting_tokens_total"
         self.requests_metric_name = "osc_k8_accounting_requests_total"
         self.error_metric_job = "token-accounting-error"
         self.error_metric_name = "osc_k8_accounting_tokens_error"
+
+    async def get_username(self, __user__: dict, __request__: Request) -> str:
+        username = (__user__ or {}).get("name")
+        if username in self.shared_users:
+            username = __request__.headers.get(self.username_header, None)
+        return username
 
     async def get_ldap_groups(self, username: str) -> list[str]:
         """
@@ -300,14 +308,13 @@ class Filter:
         __model__: dict = {},
     ) -> dict:
         self.logger.setLevel(getattr(logging, self.valves.log_level.upper()))
-        user_name = (__user__ or {}).get("name")
-        user_id = (__user__ or {}).get("id")
-        self.logger.debug(f"Found user {user_name} and ID {user_id}")
-        if not user_name or not user_id:
+        user_name = await self.get_username(__user__=__user__, __request__=__request__)
+        if not user_name:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="User name and User ID could not be determined",
             )
+        self.logger.debug(f"Found user {user_name}")
         account = await self.get_request_account(__request__, user_name)
         self.logger.debug(f"Found account {account}")
 
@@ -335,14 +342,15 @@ class Filter:
         self.logger.setLevel(getattr(logging, self.valves.log_level.upper()))
         error = None
         try:
-            user_name = (__user__ or {}).get("name")
-            user_id = (__user__ or {}).get("id")
-            if not user_name or not user_id:
+            user_name = await self.get_username(
+                __user__=__user__, __request__=__request__
+            )
+            if not user_name:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="User name and User ID could not be determined",
                 )
-            self.logger.debug(f"Found user {user_name} and ID {user_id}")
+            self.logger.debug(f"Found user {user_name}")
             account = await self.get_request_account(__request__, user_name)
             self.logger.debug(f"Found account {account}")
 

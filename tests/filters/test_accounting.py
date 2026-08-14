@@ -559,6 +559,84 @@ async def test_get_usage_message_with_empty_usage(mocker):
     }
 
 
+# ==================== get_username Tests ====================
+
+
+async def test_get_username_not_shared_user(mocker):
+    """Test that username is returned when user is not in shared users"""
+    filter_instance = accounting.Filter()
+
+    user_data = {"name": "test_user", "id": "test_user_id"}
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/api/v1/chat",
+        "headers": [(b"host", b"PZS0708.chat.example.com")],
+    }
+    request = Request(scope=scope)
+
+    result = await filter_instance.get_username(__user__=user_data, __request__=request)
+
+    assert result == "test_user"
+
+
+async def test_get_username_shared_user_with_header(mocker):
+    """Test that username from header is returned when user is in shared users"""
+    filter_instance = accounting.Filter()
+
+    user_data = {"name": "oscchat", "id": "oscchat_id"}
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/api/v1/chat",
+        "headers": [
+            (b"host", b"PZS0708.chat.example.com"),
+            (b"x-osc-user", b"actual_user"),
+        ],
+    }
+    request = Request(scope=scope)
+
+    result = await filter_instance.get_username(__user__=user_data, __request__=request)
+
+    assert result == "actual_user"
+
+
+async def test_get_username_shared_user_no_header(mocker):
+    """Test that None is returned when user is in shared users but header is missing"""
+    filter_instance = accounting.Filter()
+
+    user_data = {"name": "oscchat", "id": "oscchat_id"}
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/api/v1/chat",
+        "headers": [(b"host", b"PZS0708.chat.example.com")],
+    }
+    request = Request(scope=scope)
+
+    result = await filter_instance.get_username(__user__=user_data, __request__=request)
+
+    assert result is None
+
+
+async def test_get_username_no_user(mocker):
+    """Test that None is returned when no username found and not a shared user"""
+    filter_instance = accounting.Filter()
+
+    user_data = {"id": "test_user_id"}  # No 'name' field
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/api/v1/chat",
+        "headers": [(b"host", b"PZS0708.chat.example.com")],
+    }
+    request = Request(scope=scope)
+
+    result = await filter_instance.get_username(__user__=user_data, __request__=request)
+
+    assert result is None
+
+
 async def test_get_metrics_both_metrics_found(httpx_mock):
     """Test get_metrics when both metrics are found"""
     # Configure httpx_mock to return a successful response
