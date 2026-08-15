@@ -650,7 +650,9 @@ async def test_get_metrics_both_metrics_found(httpx_mock):
                         "instance": "gpt-4-PZS0708-test",
                     },
                     "osc_k8_accounting_tokens_total": {"metrics": [{"value": "200"}]},
-                    "osc_k8_accounting_requests_total": {"metrics": [{"value": "2"}]},
+                    "osc_k8_accounting_token_requests_total": {
+                        "metrics": [{"value": "2"}]
+                    },
                 },
                 {
                     "labels": {
@@ -658,7 +660,9 @@ async def test_get_metrics_both_metrics_found(httpx_mock):
                         "instance": "gpt-4-PZS0708-username",
                     },
                     "osc_k8_accounting_tokens_total": {"metrics": [{"value": "150"}]},
-                    "osc_k8_accounting_requests_total": {"metrics": [{"value": "5"}]},
+                    "osc_k8_accounting_token_requests_total": {
+                        "metrics": [{"value": "5"}]
+                    },
                 },
             ]
         },
@@ -692,7 +696,7 @@ async def test_get_metrics_scientific_notation(httpx_mock):
                     "osc_k8_accounting_tokens_total": {
                         "metrics": [{"value": "1.025539e+06"}]
                     },
-                    "osc_k8_accounting_requests_total": {
+                    "osc_k8_accounting_token_requests_total": {
                         "metrics": [{"value": "1.5e+02"}]
                     },
                 }
@@ -728,7 +732,7 @@ async def test_get_metrics_only_metric_name_found(httpx_mock):
                         "instance": "gpt-4-PZS0708-username",
                     },
                     "osc_k8_accounting_tokens_total": {"metrics": [{"value": "200"}]},
-                    # Missing osc_k8_accounting_requests_total
+                    # Missing osc_k8_accounting_token_requests_total
                 }
             ]
         },
@@ -793,7 +797,9 @@ async def test_get_metrics_job_not_found_in_data(httpx_mock, caplog):
                         "instance": "gpt-4-PZS0708-username",
                     },
                     "osc_k8_accounting_tokens_total": {"metrics": [{"value": "100"}]},
-                    "osc_k8_accounting_requests_total": {"metrics": [{"value": "3"}]},
+                    "osc_k8_accounting_token_requests_total": {
+                        "metrics": [{"value": "3"}]
+                    },
                 },
             ]
         },
@@ -876,12 +882,12 @@ async def test_send_metrics_success(httpx_mock):
         in payload
     )
     assert (
-        "# HELP osc_k8_accounting_requests_total K8 requests accounting record"
+        "# HELP osc_k8_accounting_token_requests_total K8 requests accounting record"
         in payload
     )
-    assert "# TYPE osc_k8_accounting_requests_total counter" in payload
+    assert "# TYPE osc_k8_accounting_token_requests_total counter" in payload
     assert (
-        'osc_k8_accounting_requests_total{model="gpt-4",account="PZS0708",user="username"} 5'
+        'osc_k8_accounting_token_requests_total{model="gpt-4",account="PZS0708",user="username"} 5'
         in payload
     )
 
