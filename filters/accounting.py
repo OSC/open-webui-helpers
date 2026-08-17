@@ -4,7 +4,7 @@ import time
 from pydantic import BaseModel, Field
 from fastapi import Request, HTTPException, status
 import httpx
-import logging
+from loguru import logger
 from typing import Any
 from filelock import AsyncFileLock, Timeout
 from ldap3 import Server, Connection, ALL, ServerPool, FIRST
@@ -70,7 +70,7 @@ class Filter:
 
     def __init__(self):
         self.valves = self.Valves()
-        self.logger = logging.getLogger("accounting")
+        self.logger = logger
         self.shared_users = ["oscchat"]
         self.username_header = "x-osc-user"
         self.error_tag = "accounting-error"
@@ -288,13 +288,12 @@ class Filter:
                 metrics_url, content=metric_data, headers=metrics_header
             )
             if not r.is_success:
-                self.logger.error(
+                self.logger.bind(
+                    error_tag=self.error_tag,
+                    status=r.status_code,
+                    body=r.text,
+                ).error(
                     "Unable to push error metric",
-                    extra={
-                        "error_tag": self.error_tag,
-                        "status": r.status_code,
-                        "body": r.text,
-                    },
                 )
                 return
             self.logger.debug(
@@ -309,7 +308,6 @@ class Filter:
         __request__: Request = None,
         __model__: dict = {},
     ) -> dict:
-        self.logger.setLevel(getattr(logging, self.valves.log_level.upper()))
         user_name = await self.get_username(__user__=__user__, __request__=__request__)
         if not user_name:
             raise HTTPException(
@@ -341,7 +339,6 @@ class Filter:
         __request__: Request = None,
         __model__: dict = {},
     ) -> dict:
-        self.logger.setLevel(getattr(logging, self.valves.log_level.upper()))
         error = None
         try:
             user_name = await self.get_username(
@@ -381,19 +378,16 @@ class Filter:
                 metric_value, requests_value = await self.get_metrics(instance=instance)
                 metric_total = float(metric_value) + float(tokens)
                 requests_total = float(requests_value) + 1
-                self.logger.info(
-                    "Process token usage.",
-                    extra={
-                        "user": user_name,
-                        "account": account,
-                        "model": model,
-                        "tokens": tokens,
-                        "existing_value": metric_value,
-                        "total_value": metric_total,
-                        "existing_requests": requests_value,
-                        "total_requests": requests_total,
-                    },
-                )
+                self.logger.bind(
+                    user=user_name,
+                    account=account,
+                    model=model,
+                    tokens=tokens,
+                    existing_value=metric_value,
+                    total_value=metric_total,
+                    existing_requests=requests_value,
+                    total_requests=requests_total,
+                ).info("Process token usage.")
                 await self.send_metrics(
                     metric_value=metric_total,
                     requests_value=requests_total,
@@ -406,24 +400,23 @@ class Filter:
                 elapsed_time = end_time - start_time
                 self.logger.debug(f"Metrics took {elapsed_time}")
         except Timeout:
-            self.logger.error(
+            self.logger.bind(
+                error_tag=self.error_tag,
+                id=chat_id,
+                user=user_name,
+                account=account,
+                model=model,
+            ).error(
                 "Timeout waiting for lock",
-                extra={
-                    "error_tag": self.error_tag,
-                    "id": chat_id,
-                    "user": user_name,
-                    "account": account,
-                    "model": model,
-                },
             )
             error = "lock timeout"
         except HTTPException as e:
-            self.logger.error(e.detail, extra={"error_tag": self.error_tag})
+            self.logger.bind(error_tag=self.error_tag).error(e.detail)
             error = e.detail
         except Exception as e:
-            self.logger.exception(
+            self.logger.error(e)
+            self.logger.bind(error_tag=self.error_tag).exception(
                 f"An unhandled exception occurred {e}",
-                extra={"error_tag": self.error_tag},
             )
             error = "exception"
         finally:

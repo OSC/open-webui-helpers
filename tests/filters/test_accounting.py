@@ -1,4 +1,5 @@
 from filters import accounting
+from loguru import logger
 
 import json
 import tempfile
@@ -959,14 +960,28 @@ async def test_send_error_metric_failure(httpx_mock, caplog):
     # Create filter instance
     filter_instance = accounting.Filter()
 
-    # Call send_error_metric - should not raise exception but log error
-    with caplog.at_level("ERROR"):
-        await filter_instance.send_error_metric(error="Test error message")
+    # Set up logger handler to capture bound data
+    bound_data = []
 
-    # Verify the error message was logged for the push failure
-    assert "Unable to push error metric" in caplog.text
-    assert caplog.records[0].status == 500
-    assert caplog.records[0].body == "Internal Server Error"
+    def sink(message):
+        bound_data.append(message.record["extra"])
+
+    handler_id = logger.add(sink)
+
+    try:
+        # Call send_error_metric - should not raise exception but log error
+        with caplog.at_level("ERROR"):
+            await filter_instance.send_error_metric(error="Test error message")
+
+        # Verify the error message was logged for the push failure
+        assert "Unable to push error metric" in caplog.text
+        # Find the bound data entry that has the status field (from the error log)
+        error_bound_data = [d for d in bound_data if "status" in d]
+        assert len(error_bound_data) > 0, "No error log with status found"
+        assert error_bound_data[0]["status"] == 500
+        assert error_bound_data[0]["body"] == "Internal Server Error"
+    finally:
+        logger.remove(handler_id)
 
 
 async def test_inlet_successful_call(mocker):

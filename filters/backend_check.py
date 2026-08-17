@@ -3,7 +3,7 @@ from fastapi import Request, HTTPException, status
 from open_webui.models.config import Config
 import asyncio
 import httpx
-import logging
+from loguru import logger
 
 
 class Filter:
@@ -27,7 +27,7 @@ class Filter:
 
     def __init__(self):
         self.valves = self.Valves()
-        self.logger = logging.getLogger("backend_check")
+        self.logger = logger
 
     async def inlet(
         self,
@@ -43,8 +43,8 @@ class Filter:
         if idx is not None and len(backends) > 0:
             backend_url = backends[idx]
         else:
-            self.logger.error(
-                "Unable to determine model index.", extra={"model_metadata": __model__}
+            self.logger.bind(model_metadata=__model__).error(
+                "Unable to determine model index."
             )
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -82,9 +82,8 @@ dynamo_pending_request{{model="{metric_model}",namespace="{self.valves.k8_namesp
 """
         metrics_url = f"{self.valves.pushgateway_url}/metrics/job/{self.valves.k8_namespace}-{metric_model}"
         metrics_header = {"Content-Type": "text/plain"}
-        self.logger.info(
+        self.logger.bind(user=user_name, model=metric_model, backend=backend_url).info(
             "Scale up request",
-            extra={"user": user_name, "model": metric_model, "backend": backend_url},
         )
         async with httpx.AsyncClient() as client:
             r = await client.post(
@@ -128,7 +127,7 @@ dynamo_pending_request{{model="{metric_model}",namespace="{self.valves.k8_namesp
             self.logger.debug(f"Waiting {delay} seconds before retrying...")
             await asyncio.sleep(delay)
 
-        self.logger.error("Model wait timed out", extra={"backend": backend_url})
+        self.logger.bind(backend=backend_url).error("Model wait timed out")
         raise unavailable
 
         # End logic, rest left in case becomes necessary in the future
