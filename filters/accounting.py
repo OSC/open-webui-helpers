@@ -341,6 +341,9 @@ class Filter:
     ) -> dict:
         error = None
         try:
+            account = "N/A"
+            chat_id = __metadata__.get("chat_id") or body.get("id", "unknown")
+            model = __model__.get("id") if __model__ else body.get("model", "unknown")
             user_name = await self.get_username(
                 __user__=__user__, __request__=__request__
             )
@@ -353,8 +356,6 @@ class Filter:
             account = await self.get_request_account(__request__, user_name)
             self.logger.debug(f"Found account {account}")
 
-            chat_id = __metadata__.get("chat_id") or body.get("id", "unknown")
-            model = __model__.get("id") if __model__ else body.get("model", "unknown")
             model_escaped = model.replace("/", "-")
             usage = await get_usage(body)
             self.logger.debug(f"Usage: chat-id={chat_id} model={model} usage={usage}")
@@ -411,10 +412,22 @@ class Filter:
             )
             error = "lock timeout"
         except HTTPException as e:
-            self.logger.bind(error_tag=self.error_tag).error(e.detail)
+            self.logger.bind(
+                error_tag=self.error_tag,
+                id=chat_id,
+                user=user_name,
+                account=account,
+                model=model,
+            ).error(e.detail)
             error = e.detail
         except Exception as e:
-            self.logger.error(e)
+            self.logger.bind(
+                error_tag=self.error_tag,
+                id=chat_id,
+                user=user_name,
+                account=account,
+                model=model,
+            ).error(e)
             self.logger.bind(error_tag=self.error_tag).exception(
                 f"An unhandled exception occurred {e}",
             )
