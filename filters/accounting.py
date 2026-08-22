@@ -4,7 +4,7 @@ import time
 from pydantic import BaseModel, Field
 from fastapi import Request, HTTPException, status
 import httpx
-import logging
+from loguru import logger
 from typing import Any
 from filelock import AsyncFileLock, Timeout
 from ldap3 import Server, Connection, ALL, ServerPool, FIRST
@@ -70,13 +70,21 @@ class Filter:
 
     def __init__(self):
         self.valves = self.Valves()
-        self.logger = logging.getLogger("accounting")
+        self.logger = logger
+        self.shared_users = ["oscchat"]
+        self.username_header = "x-osc-user"
         self.error_tag = "accounting-error"
         self.metric_job = "k8-token-accounting"
         self.metric_name = "osc_k8_accounting_tokens_total"
-        self.requests_metric_name = "osc_k8_accounting_requests_total"
+        self.requests_metric_name = "osc_k8_accounting_token_requests_total"
         self.error_metric_job = "token-accounting-error"
         self.error_metric_name = "osc_k8_accounting_tokens_error"
+
+    async def get_username(self, __user__: dict, __request__: Request) -> str:
+        username = (__user__ or {}).get("name")
+        if username in self.shared_users:
+            username = __request__.headers.get(self.username_header, None)
+        return username
 
     async def get_ldap_groups(self, username: str) -> list[str]:
         """
@@ -278,13 +286,12 @@ class Filter:
                 metrics_url, content=metric_data, headers=metrics_header
             )
             if not r.is_success:
-                self.logger.error(
+                self.logger.bind(
+                    error_tag=self.error_tag,
+                    status=r.status_code,
+                    body=r.text,
+                ).error(
                     "Unable to push error metric",
-                    extra={
-                        "error_tag": self.error_tag,
-                        "status": r.status_code,
-                        "body": r.text,
-                    },
                 )
                 return
             self.logger.debug(
@@ -299,15 +306,13 @@ class Filter:
         __request__: Request = None,
         __model__: dict = {},
     ) -> dict:
-        self.logger.setLevel(getattr(logging, self.valves.log_level.upper()))
-        user_name = (__user__ or {}).get("name")
-        user_id = (__user__ or {}).get("id")
-        self.logger.debug(f"Found user {user_name} and ID {user_id}")
-        if not user_name or not user_id:
+        user_name = await self.get_username(__user__=__user__, __request__=__request__)
+        if not user_name:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="User name and User ID could not be determined",
             )
+        self.logger.debug(f"Found user {user_name}")
         account = await self.get_request_account(__request__, user_name)
         self.logger.debug(f"Found account {account}")
 
@@ -332,22 +337,23 @@ class Filter:
         __request__: Request = None,
         __model__: dict = {},
     ) -> dict:
-        self.logger.setLevel(getattr(logging, self.valves.log_level.upper()))
         error = None
         try:
-            user_name = (__user__ or {}).get("name")
-            user_id = (__user__ or {}).get("id")
-            if not user_name or not user_id:
+            account = "N/A"
+            chat_id = __metadata__.get("chat_id") or body.get("id", "unknown")
+            model = __model__.get("id") if __model__ else body.get("model", "unknown")
+            user_name = await self.get_username(
+                __user__=__user__, __request__=__request__
+            )
+            if not user_name:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="User name and User ID could not be determined",
                 )
-            self.logger.debug(f"Found user {user_name} and ID {user_id}")
+            self.logger.debug(f"Found user {user_name}")
             account = await self.get_request_account(__request__, user_name)
             self.logger.debug(f"Found account {account}")
 
-            chat_id = __metadata__.get("chat_id") or body.get("id", "unknown")
-            model = __model__.get("id") if __model__ else body.get("model", "unknown")
             model_escaped = model.replace("/", "-")
             usage = await get_usage(body)
             self.logger.debug(f"Usage: chat-id={chat_id} model={model} usage={usage}")
@@ -371,19 +377,16 @@ class Filter:
                 metric_value, requests_value = await self.get_metrics(instance=instance)
                 metric_total = float(metric_value) + float(tokens)
                 requests_total = float(requests_value) + 1
-                self.logger.info(
-                    "Process token usage.",
-                    extra={
-                        "user": user_name,
-                        "account": account,
-                        "model": model,
-                        "tokens": tokens,
-                        "existing_value": metric_value,
-                        "total_value": metric_total,
-                        "existing_requests": requests_value,
-                        "total_requests": requests_total,
-                    },
-                )
+                self.logger.bind(
+                    user=user_name,
+                    account=account,
+                    model=model,
+                    tokens=tokens,
+                    existing_value=metric_value,
+                    total_value=metric_total,
+                    existing_requests=requests_value,
+                    total_requests=requests_total,
+                ).info("Process token usage.")
                 await self.send_metrics(
                     metric_value=metric_total,
                     requests_value=requests_total,
@@ -396,24 +399,35 @@ class Filter:
                 elapsed_time = end_time - start_time
                 self.logger.debug(f"Metrics took {elapsed_time}")
         except Timeout:
-            self.logger.error(
+            self.logger.bind(
+                error_tag=self.error_tag,
+                id=chat_id,
+                user=user_name,
+                account=account,
+                model=model,
+            ).error(
                 "Timeout waiting for lock",
-                extra={
-                    "error_tag": self.error_tag,
-                    "id": chat_id,
-                    "user": user_name,
-                    "account": account,
-                    "model": model,
-                },
             )
             error = "lock timeout"
         except HTTPException as e:
-            self.logger.error(e.detail, extra={"error_tag": self.error_tag})
+            self.logger.bind(
+                error_tag=self.error_tag,
+                id=chat_id,
+                user=user_name,
+                account=account,
+                model=model,
+            ).error(e.detail)
             error = e.detail
         except Exception as e:
-            self.logger.exception(
+            self.logger.bind(
+                error_tag=self.error_tag,
+                id=chat_id,
+                user=user_name,
+                account=account,
+                model=model,
+            ).error(e)
+            self.logger.bind(error_tag=self.error_tag).exception(
                 f"An unhandled exception occurred {e}",
-                extra={"error_tag": self.error_tag},
             )
             error = "exception"
         finally:

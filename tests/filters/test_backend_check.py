@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock
 from fastapi import Request, HTTPException
 from open_webui.models.config import Config
 from filters import backend_check
+from loguru import logger
 
 
 async def test_inlet_models_found_success(httpx_mock):
@@ -558,18 +559,27 @@ async def test_inlet_without_url_idx(mocker, caplog):
     from open_webui.models.config import Config
 
     Config.get = AsyncMock(return_value=["http://backend.example.com"])
+    bound_data = []
 
-    # Call inlet - should raise HTTPException with "Unable to determine backend URL"
-    with caplog.at_level("DEBUG"):
-        with pytest.raises(HTTPException, match="Unable to determine backend URL"):
-            await filter_instance.inlet(
-                body=body,
-                __user__=None,
-                __metadata__=metadata,
-                __request__=request,
-                __model__=model_data,
-            )
+    def sink(message):
+        bound_data.append(message.record["extra"])
 
-    # Verify the warning was logged
-    assert "Unable to determine model index" in caplog.text
-    assert caplog.records[0].model_metadata == model_data
+    handler_id = logger.add(sink)
+
+    try:
+        # Call inlet - should raise HTTPException with "Unable to determine backend URL"
+        with caplog.at_level("DEBUG"):
+            with pytest.raises(HTTPException, match="Unable to determine backend URL"):
+                await filter_instance.inlet(
+                    body=body,
+                    __user__=None,
+                    __metadata__=metadata,
+                    __request__=request,
+                    __model__=model_data,
+                )
+
+        # Verify the warning was logged
+        assert "Unable to determine model index" in caplog.text
+        assert bound_data[0]["model_metadata"] == model_data
+    finally:
+        logger.remove(handler_id)

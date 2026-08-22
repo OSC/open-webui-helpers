@@ -1,4 +1,5 @@
 from filters import accounting
+from loguru import logger
 
 import json
 import tempfile
@@ -559,6 +560,84 @@ async def test_get_usage_message_with_empty_usage(mocker):
     }
 
 
+# ==================== get_username Tests ====================
+
+
+async def test_get_username_not_shared_user(mocker):
+    """Test that username is returned when user is not in shared users"""
+    filter_instance = accounting.Filter()
+
+    user_data = {"name": "test_user", "id": "test_user_id"}
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/api/v1/chat",
+        "headers": [(b"host", b"PZS0708.chat.example.com")],
+    }
+    request = Request(scope=scope)
+
+    result = await filter_instance.get_username(__user__=user_data, __request__=request)
+
+    assert result == "test_user"
+
+
+async def test_get_username_shared_user_with_header(mocker):
+    """Test that username from header is returned when user is in shared users"""
+    filter_instance = accounting.Filter()
+
+    user_data = {"name": "oscchat", "id": "oscchat_id"}
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/api/v1/chat",
+        "headers": [
+            (b"host", b"PZS0708.chat.example.com"),
+            (b"x-osc-user", b"actual_user"),
+        ],
+    }
+    request = Request(scope=scope)
+
+    result = await filter_instance.get_username(__user__=user_data, __request__=request)
+
+    assert result == "actual_user"
+
+
+async def test_get_username_shared_user_no_header(mocker):
+    """Test that None is returned when user is in shared users but header is missing"""
+    filter_instance = accounting.Filter()
+
+    user_data = {"name": "oscchat", "id": "oscchat_id"}
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/api/v1/chat",
+        "headers": [(b"host", b"PZS0708.chat.example.com")],
+    }
+    request = Request(scope=scope)
+
+    result = await filter_instance.get_username(__user__=user_data, __request__=request)
+
+    assert result is None
+
+
+async def test_get_username_no_user(mocker):
+    """Test that None is returned when no username found and not a shared user"""
+    filter_instance = accounting.Filter()
+
+    user_data = {"id": "test_user_id"}  # No 'name' field
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/api/v1/chat",
+        "headers": [(b"host", b"PZS0708.chat.example.com")],
+    }
+    request = Request(scope=scope)
+
+    result = await filter_instance.get_username(__user__=user_data, __request__=request)
+
+    assert result is None
+
+
 async def test_get_metrics_both_metrics_found(httpx_mock):
     """Test get_metrics when both metrics are found"""
     # Configure httpx_mock to return a successful response
@@ -572,7 +651,9 @@ async def test_get_metrics_both_metrics_found(httpx_mock):
                         "instance": "gpt-4-PZS0708-test",
                     },
                     "osc_k8_accounting_tokens_total": {"metrics": [{"value": "200"}]},
-                    "osc_k8_accounting_requests_total": {"metrics": [{"value": "2"}]},
+                    "osc_k8_accounting_token_requests_total": {
+                        "metrics": [{"value": "2"}]
+                    },
                 },
                 {
                     "labels": {
@@ -580,7 +661,9 @@ async def test_get_metrics_both_metrics_found(httpx_mock):
                         "instance": "gpt-4-PZS0708-username",
                     },
                     "osc_k8_accounting_tokens_total": {"metrics": [{"value": "150"}]},
-                    "osc_k8_accounting_requests_total": {"metrics": [{"value": "5"}]},
+                    "osc_k8_accounting_token_requests_total": {
+                        "metrics": [{"value": "5"}]
+                    },
                 },
             ]
         },
@@ -614,7 +697,7 @@ async def test_get_metrics_scientific_notation(httpx_mock):
                     "osc_k8_accounting_tokens_total": {
                         "metrics": [{"value": "1.025539e+06"}]
                     },
-                    "osc_k8_accounting_requests_total": {
+                    "osc_k8_accounting_token_requests_total": {
                         "metrics": [{"value": "1.5e+02"}]
                     },
                 }
@@ -650,7 +733,7 @@ async def test_get_metrics_only_metric_name_found(httpx_mock):
                         "instance": "gpt-4-PZS0708-username",
                     },
                     "osc_k8_accounting_tokens_total": {"metrics": [{"value": "200"}]},
-                    # Missing osc_k8_accounting_requests_total
+                    # Missing osc_k8_accounting_token_requests_total
                 }
             ]
         },
@@ -715,7 +798,9 @@ async def test_get_metrics_job_not_found_in_data(httpx_mock, caplog):
                         "instance": "gpt-4-PZS0708-username",
                     },
                     "osc_k8_accounting_tokens_total": {"metrics": [{"value": "100"}]},
-                    "osc_k8_accounting_requests_total": {"metrics": [{"value": "3"}]},
+                    "osc_k8_accounting_token_requests_total": {
+                        "metrics": [{"value": "3"}]
+                    },
                 },
             ]
         },
@@ -798,12 +883,12 @@ async def test_send_metrics_success(httpx_mock):
         in payload
     )
     assert (
-        "# HELP osc_k8_accounting_requests_total K8 requests accounting record"
+        "# HELP osc_k8_accounting_token_requests_total K8 requests accounting record"
         in payload
     )
-    assert "# TYPE osc_k8_accounting_requests_total counter" in payload
+    assert "# TYPE osc_k8_accounting_token_requests_total counter" in payload
     assert (
-        'osc_k8_accounting_requests_total{model="gpt-4",account="PZS0708",user="username"} 5'
+        'osc_k8_accounting_token_requests_total{model="gpt-4",account="PZS0708",user="username"} 5'
         in payload
     )
 
@@ -875,19 +960,34 @@ async def test_send_error_metric_failure(httpx_mock, caplog):
     # Create filter instance
     filter_instance = accounting.Filter()
 
-    # Call send_error_metric - should not raise exception but log error
-    with caplog.at_level("ERROR"):
-        await filter_instance.send_error_metric(error="Test error message")
+    # Set up logger handler to capture bound data
+    bound_data = []
 
-    # Verify the error message was logged for the push failure
-    assert "Unable to push error metric" in caplog.text
-    assert caplog.records[0].status == 500
-    assert caplog.records[0].body == "Internal Server Error"
+    def sink(message):
+        bound_data.append(message.record["extra"])
+
+    handler_id = logger.add(sink)
+
+    try:
+        # Call send_error_metric - should not raise exception but log error
+        with caplog.at_level("ERROR"):
+            await filter_instance.send_error_metric(error="Test error message")
+
+        # Verify the error message was logged for the push failure
+        assert "Unable to push error metric" in caplog.text
+        # Find the bound data entry that has the status field (from the error log)
+        error_bound_data = [d for d in bound_data if "status" in d]
+        assert len(error_bound_data) > 0, "No error log with status found"
+        assert error_bound_data[0]["status"] == 500
+        assert error_bound_data[0]["body"] == "Internal Server Error"
+    finally:
+        logger.remove(handler_id)
 
 
 async def test_inlet_successful_call(mocker):
     """Test successful inlet call with body returned"""
-    # Mock the get_request_account function
+    # Mock the get_username and get_request_account functions
+    mock_get_username = mocker.patch.object(accounting.Filter, "get_username")
     mock_get_request_account = mocker.patch.object(
         accounting.Filter, "get_request_account"
     )
@@ -913,6 +1013,8 @@ async def test_inlet_successful_call(mocker):
     # Test body
     body = {"model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}]}
 
+    # Mock get_username to return a valid username
+    mock_get_username.return_value = "test_user"
     # Mock get_request_account to return a valid account
     mock_get_request_account.return_value = "PZS0708"
 
@@ -923,13 +1025,16 @@ async def test_inlet_successful_call(mocker):
 
     # Verify the result is the same as the input body
     assert result == body
+    # Verify get_username was called
+    mock_get_username.assert_called_once_with(__user__=user_data, __request__=request)
     # Verify get_request_account was called
     mock_get_request_account.assert_called_once_with(request, "test_user")
 
 
 async def test_inlet_stream_request_modified(mocker):
     """Test inlet with stream request where body is modified"""
-    # Mock the get_request_account function
+    # Mock the get_username and get_request_account functions
+    mock_get_username = mocker.patch.object(accounting.Filter, "get_username")
     mock_get_request_account = mocker.patch.object(
         accounting.Filter, "get_request_account"
     )
@@ -959,6 +1064,8 @@ async def test_inlet_stream_request_modified(mocker):
         "messages": [{"role": "user", "content": "Hello"}],
     }
 
+    # Mock get_username to return a valid username
+    mock_get_username.return_value = "test_user"
     # Mock get_request_account to return a valid account
     mock_get_request_account.return_value = "PZS0708"
 
@@ -971,13 +1078,16 @@ async def test_inlet_stream_request_modified(mocker):
     assert result["stream"] is True
     assert "stream_options" in result
     assert result["stream_options"]["include_usage"] is True
+    # Verify get_username was called
+    mock_get_username.assert_called_once_with(__user__=user_data, __request__=request)
     # Verify get_request_account was called
     mock_get_request_account.assert_called_once_with(request, "test_user")
 
 
 async def test_inlet_user_missing_info(mocker):
     """Test inlet when user name or user id is missing"""
-    # Mock the get_request_account function (should not be called)
+    # Mock the get_username and get_request_account functions
+    mock_get_username = mocker.patch.object(accounting.Filter, "get_username")
     mock_get_request_account = mocker.patch.object(
         accounting.Filter, "get_request_account"
     )
@@ -1003,6 +1113,9 @@ async def test_inlet_user_missing_info(mocker):
     # Test body
     body = {"model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}]}
 
+    # Mock get_username to return None (simulating missing username)
+    mock_get_username.return_value = None
+
     # Call inlet - should raise HTTPException
     with pytest.raises(
         HTTPException, match="User name and User ID could not be determined"
@@ -1011,13 +1124,16 @@ async def test_inlet_user_missing_info(mocker):
             body=body, __user__=user_data, __request__=request, __model__=model_data
         )
 
+    # Verify get_username was called
+    mock_get_username.assert_called_once_with(__user__=user_data, __request__=request)
     # Verify get_request_account was not called
     mock_get_request_account.assert_not_called()
 
 
 async def test_inlet_get_account_fails(mocker):
     """Test inlet when getting account fails"""
-    # Mock the get_request_account function to raise an exception
+    # Mock the get_username and get_request_account functions
+    mock_get_username = mocker.patch.object(accounting.Filter, "get_username")
     mock_get_request_account = mocker.patch.object(
         accounting.Filter, "get_request_account"
     )
@@ -1043,6 +1159,8 @@ async def test_inlet_get_account_fails(mocker):
     # Test body
     body = {"model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}]}
 
+    # Mock get_username to return a valid username
+    mock_get_username.return_value = "test_user"
     # Mock get_request_account to raise an exception
     mock_get_request_account.side_effect = HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST, detail="Account not valid"
@@ -1054,6 +1172,8 @@ async def test_inlet_get_account_fails(mocker):
             body=body, __user__=user_data, __request__=request, __model__=model_data
         )
 
+    # Verify get_username was called
+    mock_get_username.assert_called_once_with(__user__=user_data, __request__=request)
     # Verify get_request_account was called
     mock_get_request_account.assert_called_once_with(request, "test_user")
 
@@ -1061,6 +1181,7 @@ async def test_inlet_get_account_fails(mocker):
 async def test_outlet_successful_call(mocker, caplog):
     """Test successful outlet call with body returned"""
     # Mock external functions
+    mock_get_username = mocker.patch.object(accounting.Filter, "get_username")
     mock_get_request_account = mocker.patch.object(
         accounting.Filter, "get_request_account"
     )
@@ -1109,6 +1230,7 @@ async def test_outlet_successful_call(mocker, caplog):
     }
 
     # Mock external functions
+    mock_get_username.return_value = "test_user"
     mock_get_request_account.return_value = "PZS0708"
     mock_get_usage.return_value = {
         "prompt_tokens": 120,
@@ -1132,6 +1254,7 @@ async def test_outlet_successful_call(mocker, caplog):
     assert result == body
 
     # Verify all external functions were called
+    mock_get_username.assert_called_once_with(__user__=user_data, __request__=request)
     mock_get_request_account.assert_called_once_with(request, "test_user")
     mock_get_usage.assert_called_once_with(body)
     mock_get_metrics.assert_called_once_with(
@@ -1151,7 +1274,8 @@ async def test_outlet_successful_call(mocker, caplog):
 
 async def test_outlet_user_missing_info(mocker, caplog):
     """Test outlet when user name or user id is missing"""
-    # Mock get_request_account (should not be called)
+    # Mock get_username and get_request_account (should not be called)
+    mock_get_username = mocker.patch.object(accounting.Filter, "get_username")
     mock_get_request_account = mocker.patch.object(
         accounting.Filter, "get_request_account"
     )
@@ -1182,6 +1306,9 @@ async def test_outlet_user_missing_info(mocker, caplog):
     # Test body
     body = {"model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}]}
 
+    # Mock get_username to return None (simulating missing username)
+    mock_get_username.return_value = None
+
     # Call outlet - should NOT raise HTTPException (caught and logged)
     with caplog.at_level("ERROR"):
         result = await filter_instance.outlet(
@@ -1195,6 +1322,8 @@ async def test_outlet_user_missing_info(mocker, caplog):
     # Verify the result is the same as the input body (returned normally)
     assert result == body
 
+    # Verify get_username was called
+    mock_get_username.assert_called_once_with(__user__=user_data, __request__=request)
     # Verify get_request_account was not called
     mock_get_request_account.assert_not_called()
     # Verify get_usage was not called
@@ -1210,7 +1339,8 @@ async def test_outlet_user_missing_info(mocker, caplog):
 
 async def test_outlet_get_account_fails(mocker, caplog):
     """Test outlet when getting account fails"""
-    # Mock get_request_account to raise an exception
+    # Mock get_username and get_request_account to raise an exception
+    mock_get_username = mocker.patch.object(accounting.Filter, "get_username")
     mock_get_request_account = mocker.patch.object(
         accounting.Filter, "get_request_account"
     )
@@ -1241,6 +1371,8 @@ async def test_outlet_get_account_fails(mocker, caplog):
     # Test body
     body = {"model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}]}
 
+    # Mock get_username to return a valid username
+    mock_get_username.return_value = "test_user"
     # Mock get_request_account to raise an exception
     mock_get_request_account.side_effect = HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST, detail="Account not valid"
@@ -1259,6 +1391,8 @@ async def test_outlet_get_account_fails(mocker, caplog):
     # Verify the result is the same as the input body (returned normally)
     assert result == body
 
+    # Verify get_username was called
+    mock_get_username.assert_called_once_with(__user__=user_data, __request__=request)
     # Verify get_request_account was called
     mock_get_request_account.assert_called_once_with(request, "test_user")
     # Verify get_usage was not called
@@ -1338,6 +1472,7 @@ async def test_outlet_usage_missing(mocker, caplog):
 async def test_outlet_total_tokens_is_none(mocker, caplog):
     """Test outlet when usage is found but total_tokens is None"""
     # Mock external functions
+    mock_get_username = mocker.patch.object(accounting.Filter, "get_username")
     mock_get_request_account = mocker.patch.object(
         accounting.Filter, "get_request_account"
     )
@@ -1383,6 +1518,8 @@ async def test_outlet_total_tokens_is_none(mocker, caplog):
         ],
     }
 
+    # Mock get_username to return a valid username
+    mock_get_username.return_value = "test_user"
     # Mock get_usage to return usage with no total_tokens
     mock_get_usage.return_value = {
         "prompt_tokens": 120,
@@ -1404,6 +1541,8 @@ async def test_outlet_total_tokens_is_none(mocker, caplog):
     # Verify the result is the same as the input body (returned normally)
     assert result == body
 
+    # Verify get_username was called
+    mock_get_username.assert_called_once_with(__user__=user_data, __request__=request)
     # Verify get_request_account was called
     mock_get_request_account.assert_called_once_with(request, "test_user")
     # Verify get_usage was called
@@ -1420,6 +1559,7 @@ async def test_outlet_total_tokens_is_none(mocker, caplog):
 async def test_outlet_get_metrics_fails(mocker, caplog):
     """Test outlet when get_metrics fails"""
     # Mock external functions
+    mock_get_username = mocker.patch.object(accounting.Filter, "get_username")
     mock_get_request_account = mocker.patch.object(
         accounting.Filter, "get_request_account"
     )
@@ -1468,6 +1608,7 @@ async def test_outlet_get_metrics_fails(mocker, caplog):
     }
 
     # Mock external functions
+    mock_get_username.return_value = "test_user"
     mock_get_request_account.return_value = "PZS0708"
     mock_get_usage.return_value = {
         "prompt_tokens": 120,
@@ -1493,6 +1634,8 @@ async def test_outlet_get_metrics_fails(mocker, caplog):
     # Verify the result is the same as the input body (returned normally)
     assert result == body
 
+    # Verify get_username was called
+    mock_get_username.assert_called_once_with(__user__=user_data, __request__=request)
     # Verify get_request_account was called
     mock_get_request_account.assert_called_once_with(request, "test_user")
     # Verify get_usage was called
@@ -1513,6 +1656,7 @@ async def test_outlet_get_metrics_fails(mocker, caplog):
 async def test_outlet_send_metrics_fails(mocker, caplog):
     """Test outlet when send_metrics fails"""
     # Mock external functions
+    mock_get_username = mocker.patch.object(accounting.Filter, "get_username")
     mock_get_request_account = mocker.patch.object(
         accounting.Filter, "get_request_account"
     )
@@ -1561,6 +1705,7 @@ async def test_outlet_send_metrics_fails(mocker, caplog):
     }
 
     # Mock external functions
+    mock_get_username.return_value = "test_user"
     mock_get_request_account.return_value = "PZS0708"
     mock_get_usage.return_value = {
         "prompt_tokens": 120,
@@ -1588,6 +1733,7 @@ async def test_outlet_send_metrics_fails(mocker, caplog):
     assert result == body
 
     # Verify all external functions were called
+    mock_get_username.assert_called_once_with(__user__=user_data, __request__=request)
     mock_get_request_account.assert_called_once_with(request, "test_user")
     mock_get_usage.assert_called_once_with(body)
     mock_get_metrics.assert_called_once_with(
@@ -1619,6 +1765,7 @@ async def test_outlet_timeout_waiting_for_lock(mocker, caplog):
     We stub get_metrics to avoid network calls inside the lock context.
     """
     # Mock external functions
+    mock_get_username = mocker.patch.object(accounting.Filter, "get_username")
     mock_get_request_account = mocker.patch.object(
         accounting.Filter, "get_request_account"
     )
@@ -1665,6 +1812,7 @@ async def test_outlet_timeout_waiting_for_lock(mocker, caplog):
     }
 
     # Mock external functions
+    mock_get_username.return_value = "test_user"
     mock_get_request_account.return_value = "PZS0708"
     mock_get_usage.return_value = {
         "prompt_tokens": 120,
@@ -1687,6 +1835,8 @@ async def test_outlet_timeout_waiting_for_lock(mocker, caplog):
     # Verify the result is the same as the input body (returned normally)
     assert result == body
 
+    # Verify get_username was called
+    mock_get_username.assert_called_once_with(__user__=user_data, __request__=request)
     # Verify error message was logged for lock timeout
     assert "Timeout waiting for lock" in caplog.text
     # Verify send_error_metric was called with the error
@@ -1696,6 +1846,7 @@ async def test_outlet_timeout_waiting_for_lock(mocker, caplog):
 async def test_outlet_generic_exception(mocker, caplog):
     """Test outlet when an unhandled exception occurs"""
     # Mock external functions
+    mock_get_username = mocker.patch.object(accounting.Filter, "get_username")
     mock_get_request_account = mocker.patch.object(
         accounting.Filter, "get_request_account"
     )
@@ -1741,6 +1892,8 @@ async def test_outlet_generic_exception(mocker, caplog):
         ],
     }
 
+    # Mock get_username to return valid username
+    mock_get_username.return_value = "test_user"
     # Mock get_usage to return valid usage
     mock_get_usage.return_value = {
         "prompt_tokens": 120,
@@ -1770,6 +1923,8 @@ async def test_outlet_generic_exception(mocker, caplog):
     # Verify the result is the same as the input body (returned normally)
     assert result == body
 
+    # Verify get_username was called
+    mock_get_username.assert_called_once_with(__user__=user_data, __request__=request)
     # Verify error message was logged
     assert "An unhandled exception occurred" in caplog.text
     # Verify send_error_metric was called with the error

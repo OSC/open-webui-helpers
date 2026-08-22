@@ -1,7 +1,7 @@
 from pydantic import BaseModel, Field
 from fastapi import Request
 from open_webui.models.config import Config
-import logging
+from loguru import logger
 
 
 class Filter:
@@ -10,7 +10,7 @@ class Filter:
 
     def __init__(self):
         self.valves = self.Valves()
-        self.logger = logging.getLogger("api_usage")
+        self.logger = logger
 
     async def inlet(
         self,
@@ -31,19 +31,16 @@ class Filter:
             backend_url = backends[idx]
         else:
             backend_url = "unknown"
-            self.logger.error(
-                "Unable to determine model index", extra={"model_metadata": __model__}
+            self.logger.bind(model_metadata=__model__).error(
+                "Unable to determine model index"
             )
 
-        self.logger.info(
-            "Request",
-            extra={
-                "user": user_name,
-                "path": url_path,
-                "model": model,
-                "backend": backend_url,
-                "chat_id": chat_id or "none",
-            },
-        )
+        self.logger.bind(
+            user=user_name,
+            path=url_path,
+            model=model,
+            backend=backend_url,
+            chat_id=chat_id or "none",
+        ).info("Request")
 
         return body
