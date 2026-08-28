@@ -196,7 +196,8 @@ class Filter:
                 )
             metrics = r.json()
 
-        metric_value = 0
+        input_metric_value = 0
+        output_metric_value = 0
         requests_value = 0
         # Logic to query counter for increment left but unused
         if len(metrics.get("data", [])) > 0:
@@ -215,10 +216,15 @@ class Filter:
                     continue
                 metric_data = data.get(self.metric_name, {})
                 if metric_data:
-                    metric = metric_data.get("metrics", [])[0]
-                    metric_value = float(metric.get("value", 0))
+                    metrics = metric_data.get("metrics", [])
+                    for metric in metrics:
+                        token_type = metric.get("labels", {}).get("token_type", None)
+                        if token_type == "input":
+                            input_metric_value = float(metric.get("value", 0))
+                        if token_type == "output":
+                            output_metric_value = float(metric.get("value", 0))
                     self.logger.debug(
-                        f"Existing metric value. value={metric_value} data={data}"
+                        f"Existing metric values. input={input_metric_value} output={output_metric_value} data={data}"
                     )
                 requests_data = data.get(self.requests_metric_name, {})
                 if requests_data:
@@ -227,13 +233,18 @@ class Filter:
                     self.logger.debug(
                         f"Existing requests value. value={requests_value} data={data}"
                     )
-                if metric_data and requests_data:
+                if input_metric_value and output_metric_value and requests_value:
                     break
-        return float(metric_value), float(requests_value)
+        return (
+            float(input_metric_value),
+            float(output_metric_value),
+            float(requests_value),
+        )
 
     async def send_metrics(
         self,
-        metric_value: float,
+        input_metric_value: float,
+        output_metric_value: float,
         requests_value: float,
         user_name: str,
         account: str,
@@ -246,7 +257,8 @@ class Filter:
         metric_data = f"""
 # HELP {self.metric_name} K8 token accounting record
 # TYPE {self.metric_name} counter
-{self.metric_name}{{model="{model}",account="{account}",user="{user_name}"}} {metric_value}
+{self.metric_name}{{model="{model}",account="{account}",user="{user_name}",token_type="input"}} {input_metric_value}
+{self.metric_name}{{model="{model}",account="{account}",user="{user_name}",token_type="output"}} {output_metric_value}
 # HELP {self.requests_metric_name} K8 requests accounting record
 # TYPE {self.requests_metric_name} counter
 {self.requests_metric_name}{{model="{model}",account="{account}",user="{user_name}"}} {requests_value}
@@ -255,7 +267,7 @@ class Filter:
         metrics_url = f"{self.valves.pushgateway_url}/metrics/{path}"
         metrics_header = {"Content-Type": "text/plain"}
         self.logger.debug(
-            f"Send metric value {metric_value} and requests value {requests_value} to {metrics_url}"
+            f"Send metric values {input_metric_value}/{output_metric_value} and requests value {requests_value} to {metrics_url}"
         )
         async with httpx.AsyncClient() as client:
             r = await client.post(
@@ -362,11 +374,17 @@ class Filter:
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Unable to get usage from response",
                 )
-            tokens = usage.get("total_tokens", None)
-            if tokens is None:
+            input_tokens = usage.get("prompt_tokens", None)
+            output_tokens = usage.get("completion_tokens", None)
+            if input_tokens is None:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Request lacks token usage in the response: {usage}",
+                    detail=f"Request lacks input token usage in the response: {usage}",
+                )
+            if output_tokens is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Request lacks output token usage in the response: {usage}",
                 )
 
             instance = f"{model_escaped}-{account}-{user_name}"
@@ -374,21 +392,28 @@ class Filter:
             lock = AsyncFileLock(lock_file_path)
             async with lock:
                 start_time = time.perf_counter()
-                metric_value, requests_value = await self.get_metrics(instance=instance)
-                metric_total = float(metric_value) + float(tokens)
+                input_metric_value, output_metric_value, requests_value = (
+                    await self.get_metrics(instance=instance)
+                )
+                input_metric_total = float(input_metric_value) + float(input_tokens)
+                output_metric_total = float(output_metric_value) + float(output_tokens)
                 requests_total = float(requests_value) + 1
                 self.logger.bind(
                     user=user_name,
                     account=account,
                     model=model,
-                    tokens=tokens,
-                    existing_value=metric_value,
-                    total_value=metric_total,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    existing_input_value=input_metric_value,
+                    existing_output_value=output_metric_value,
+                    input_total_value=input_metric_total,
+                    output_total_value=output_metric_total,
                     existing_requests=requests_value,
                     total_requests=requests_total,
                 ).info("Process token usage.")
                 await self.send_metrics(
-                    metric_value=metric_total,
+                    input_metric_value=input_metric_total,
+                    output_metric_value=output_metric_total,
                     requests_value=requests_total,
                     user_name=user_name,
                     account=account,

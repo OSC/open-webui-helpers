@@ -650,7 +650,12 @@ async def test_get_metrics_both_metrics_found(httpx_mock):
                         "job": "k8-token-accounting",
                         "instance": "gpt-4-PZS0708-test",
                     },
-                    "osc_k8_accounting_tokens_total": {"metrics": [{"value": "200"}]},
+                    "osc_k8_accounting_tokens_total": {
+                        "metrics": [
+                            {"value": "50", "labels": {"token_type": "input"}},
+                            {"value": "150", "labels": {"token_type": "output"}},
+                        ]
+                    },
                     "osc_k8_accounting_token_requests_total": {
                         "metrics": [{"value": "2"}]
                     },
@@ -660,7 +665,12 @@ async def test_get_metrics_both_metrics_found(httpx_mock):
                         "job": "k8-token-accounting",
                         "instance": "gpt-4-PZS0708-username",
                     },
-                    "osc_k8_accounting_tokens_total": {"metrics": [{"value": "150"}]},
+                    "osc_k8_accounting_tokens_total": {
+                        "metrics": [
+                            {"value": "25", "labels": {"token_type": "input"}},
+                            {"value": "125", "labels": {"token_type": "output"}},
+                        ]
+                    },
                     "osc_k8_accounting_token_requests_total": {
                         "metrics": [{"value": "5"}]
                     },
@@ -678,8 +688,8 @@ async def test_get_metrics_both_metrics_found(httpx_mock):
         instance="gpt-4-PZS0708-username",
     )
 
-    # Assert result
-    assert result == (150, 5)
+    # Assert result - now returns (input, output, requests)
+    assert result == (25, 125, 5)
 
 
 async def test_get_metrics_scientific_notation(httpx_mock):
@@ -695,7 +705,13 @@ async def test_get_metrics_scientific_notation(httpx_mock):
                         "instance": "gpt-4-PZS0708-username",
                     },
                     "osc_k8_accounting_tokens_total": {
-                        "metrics": [{"value": "1.025539e+06"}]
+                        "metrics": [
+                            {"value": "1.5e+02", "labels": {"token_type": "input"}},
+                            {
+                                "value": "1.025539e+06",
+                                "labels": {"token_type": "output"},
+                            },
+                        ]
                     },
                     "osc_k8_accounting_token_requests_total": {
                         "metrics": [{"value": "1.5e+02"}]
@@ -715,9 +731,10 @@ async def test_get_metrics_scientific_notation(httpx_mock):
     )
 
     # Assert result - scientific notation should be converted correctly
-    # 1.025539e+06 = 1025539
-    # 1.5e+02 = 150
-    assert result == (1025539, 150)
+    # 1.5e+02 = 150 (input)
+    # 1.025539e+06 = 1025539 (output)
+    # 1.5e+02 = 150 (requests)
+    assert result == (150, 1025539, 150)
 
 
 async def test_get_metrics_only_metric_name_found(httpx_mock):
@@ -732,7 +749,12 @@ async def test_get_metrics_only_metric_name_found(httpx_mock):
                         "job": "k8-token-accounting",
                         "instance": "gpt-4-PZS0708-username",
                     },
-                    "osc_k8_accounting_tokens_total": {"metrics": [{"value": "200"}]},
+                    "osc_k8_accounting_tokens_total": {
+                        "metrics": [
+                            {"value": "100", "labels": {"token_type": "input"}},
+                            {"value": "200", "labels": {"token_type": "output"}},
+                        ]
+                    },
                     # Missing osc_k8_accounting_token_requests_total
                 }
             ]
@@ -749,7 +771,7 @@ async def test_get_metrics_only_metric_name_found(httpx_mock):
     )
 
     # Assert result - requests_value should default to 0
-    assert result == (200, 0)
+    assert result == (100, 200, 0)
 
 
 async def test_get_metrics_no_metrics_found(httpx_mock):
@@ -776,8 +798,8 @@ async def test_get_metrics_no_metrics_found(httpx_mock):
         instance="gpt-4-PZS0708-username",
     )
 
-    # Assert result - both should default to 0
-    assert result == (0, 0)
+    # Assert result - all should default to 0
+    assert result == (0, 0, 0)
 
 
 async def test_get_metrics_job_not_found_in_data(httpx_mock, caplog):
@@ -790,14 +812,24 @@ async def test_get_metrics_job_not_found_in_data(httpx_mock, caplog):
                 {
                     "labels": {"instance": "gpt-4-PZS0708-username"},
                     # No job field - should skip this data
-                    "osc_k8_accounting_tokens_total": {"metrics": [{"value": "150"}]},
+                    "osc_k8_accounting_tokens_total": {
+                        "metrics": [
+                            {"value": "50", "labels": {"token_type": "input"}},
+                            {"value": "100", "labels": {"token_type": "output"}},
+                        ]
+                    },
                 },
                 {
                     "labels": {
                         "job": "k8-token-accounting",
                         "instance": "gpt-4-PZS0708-username",
                     },
-                    "osc_k8_accounting_tokens_total": {"metrics": [{"value": "100"}]},
+                    "osc_k8_accounting_tokens_total": {
+                        "metrics": [
+                            {"value": "25", "labels": {"token_type": "input"}},
+                            {"value": "75", "labels": {"token_type": "output"}},
+                        ]
+                    },
                     "osc_k8_accounting_token_requests_total": {
                         "metrics": [{"value": "3"}]
                     },
@@ -817,7 +849,7 @@ async def test_get_metrics_job_not_found_in_data(httpx_mock, caplog):
         )
 
     # Assert result - should get value from second data entry
-    assert result == (100, 3)
+    assert result == (25, 75, 3)
     # Verify that the first entry was skipped due to missing job
     assert "job value not found in metric data" in caplog.text
 
@@ -857,7 +889,8 @@ async def test_send_metrics_success(httpx_mock):
 
     # Call send_metrics
     await filter_instance.send_metrics(
-        metric_value=150,
+        input_metric_value=50,
+        output_metric_value=100,
         requests_value=5,
         user_name="username",
         account="PZS0708",
@@ -879,7 +912,11 @@ async def test_send_metrics_success(httpx_mock):
     assert "# HELP osc_k8_accounting_tokens_total K8 token accounting record" in payload
     assert "# TYPE osc_k8_accounting_tokens_total counter" in payload
     assert (
-        'osc_k8_accounting_tokens_total{model="gpt-4",account="PZS0708",user="username"} 150'
+        'osc_k8_accounting_tokens_total{model="gpt-4",account="PZS0708",user="username",token_type="input"} 50'
+        in payload
+    )
+    assert (
+        'osc_k8_accounting_tokens_total{model="gpt-4",account="PZS0708",user="username",token_type="output"} 100'
         in payload
     )
     assert (
@@ -908,7 +945,8 @@ async def test_send_metrics_failure(httpx_mock):
     # Expect HTTPException to be raised
     with pytest.raises(HTTPException, match="Unable to push accounting metric"):
         await filter_instance.send_metrics(
-            metric_value=150,
+            input_metric_value=50,
+            output_metric_value=100,
             requests_value=5,
             user_name="username",
             account="PZS0708",
@@ -1237,7 +1275,7 @@ async def test_outlet_successful_call(mocker, caplog):
         "completion_tokens": 80,
         "total_tokens": 200,
     }
-    mock_get_metrics.return_value = (0, 0)  # (metric_value, requests_value)
+    mock_get_metrics.return_value = (0, 0, 0)  # (input, output, requests)
     mock_send_metrics.return_value = None
 
     # Call outlet
@@ -1261,7 +1299,8 @@ async def test_outlet_successful_call(mocker, caplog):
         instance="ai-gpt-4-PZS0708-test_user",
     )
     mock_send_metrics.assert_called_once_with(
-        metric_value=200,  # 0 + 200
+        input_metric_value=120,  # 0 + 120
+        output_metric_value=80,  # 0 + 80
         requests_value=1,  # 0 + 1
         user_name="test_user",
         account="PZS0708",
@@ -1469,8 +1508,8 @@ async def test_outlet_usage_missing(mocker, caplog):
     )
 
 
-async def test_outlet_total_tokens_is_none(mocker, caplog):
-    """Test outlet when usage is found but total_tokens is None"""
+async def test_outlet_prompt_tokens_is_none(mocker, caplog):
+    """Test outlet when usage is found but prompt_tokens is None"""
     # Mock external functions
     mock_get_username = mocker.patch.object(accounting.Filter, "get_username")
     mock_get_request_account = mocker.patch.object(
@@ -1500,7 +1539,7 @@ async def test_outlet_total_tokens_is_none(mocker, caplog):
     # Create filter instance
     filter_instance = accounting.Filter()
 
-    # Test body with usage that has no total_tokens
+    # Test body with usage that has no prompt_tokens
     body = {
         "id": "msg_123",
         "model": "gpt-4",
@@ -1510,9 +1549,8 @@ async def test_outlet_total_tokens_is_none(mocker, caplog):
                 "role": "assistant",
                 "content": "Hi there!",
                 "usage": {
-                    "prompt_tokens": 120,
-                    "completion_tokens": 80,
-                    # No total_tokens
+                    "completion_tokens": 120,
+                    # No prompt_tokens
                 },
             },
         ],
@@ -1520,10 +1558,9 @@ async def test_outlet_total_tokens_is_none(mocker, caplog):
 
     # Mock get_username to return a valid username
     mock_get_username.return_value = "test_user"
-    # Mock get_usage to return usage with no total_tokens
+    # Mock get_usage to return usage with no prompt_tokens
     mock_get_usage.return_value = {
-        "prompt_tokens": 120,
-        "completion_tokens": 80,
+        "completion_tokens": 120,
     }
     # Mock get_request_account to return a valid account
     mock_get_request_account.return_value = "PZS0708"
@@ -1549,10 +1586,95 @@ async def test_outlet_total_tokens_is_none(mocker, caplog):
     mock_get_usage.assert_called_once_with(body)
 
     # Verify error message was logged
-    assert "Request lacks token usage in the response" in caplog.text
+    assert "Request lacks input token usage in the response" in caplog.text
     # Verify send_error_metric was called with the error (includes the usage dict)
     mock_send_error_metric.assert_called_once_with(
-        error="Request lacks token usage in the response: {'prompt_tokens': 120, 'completion_tokens': 80}"
+        error="Request lacks input token usage in the response: {'completion_tokens': 120}"
+    )
+
+
+async def test_outlet_completion_tokens_is_none(mocker, caplog):
+    """Test outlet when usage is found but completion_tokens is None"""
+    # Mock external functions
+    mock_get_username = mocker.patch.object(accounting.Filter, "get_username")
+    mock_get_request_account = mocker.patch.object(
+        accounting.Filter, "get_request_account"
+    )
+    mock_get_usage = mocker.patch("filters.accounting.get_usage")
+    mock_send_error_metric = mocker.patch.object(accounting.Filter, "send_error_metric")
+
+    # Set up mock request
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/api/v1/chat",
+        "headers": [(b"host", b"PZS0708.chat.example.com")],
+    }
+    request = Request(scope=scope)
+
+    # Set up user data
+    user_data = {"name": "test_user", "id": "test_user_id"}
+
+    # Set up metadata
+    metadata = {"chat_id": "chat_123"}
+
+    # Set up model data
+    model_data = {"id": "gpt-4"}
+
+    # Create filter instance
+    filter_instance = accounting.Filter()
+
+    # Test body with usage that has no completion_tokens
+    body = {
+        "id": "msg_123",
+        "model": "gpt-4",
+        "messages": [
+            {"role": "user", "content": "Hello"},
+            {
+                "role": "assistant",
+                "content": "Hi there!",
+                "usage": {
+                    "prompt_tokens": 120,
+                    # No completion_tokens
+                },
+            },
+        ],
+    }
+
+    # Mock get_username to return a valid username
+    mock_get_username.return_value = "test_user"
+    # Mock get_usage to return usage with no completion_tokens
+    mock_get_usage.return_value = {
+        "prompt_tokens": 120,
+    }
+    # Mock get_request_account to return a valid account
+    mock_get_request_account.return_value = "PZS0708"
+
+    # Call outlet - should NOT raise HTTPException (caught and logged)
+    with caplog.at_level("ERROR"):
+        result = await filter_instance.outlet(
+            body=body,
+            __user__=user_data,
+            __metadata__=metadata,
+            __request__=request,
+            __model__=model_data,
+        )
+
+    # Verify the result is the same as the input body (returned normally)
+    assert result == body
+
+    # Verify get_username was called
+    mock_get_username.assert_called_once_with(__user__=user_data, __request__=request)
+    # Verify get_request_account was called
+    mock_get_request_account.assert_called_once_with(request, "test_user")
+    # Verify get_usage was called
+    mock_get_usage.assert_called_once_with(body)
+
+    # Verify error message was logged
+    assert "Request lacks output token usage in the response" in caplog.text
+    # Verify send_error_metric was called with the error (includes the usage dict)
+    mock_send_error_metric.assert_called_once_with(
+        error="Request lacks output token usage in the response: {'prompt_tokens': 120}"
     )
 
 
@@ -1712,7 +1834,7 @@ async def test_outlet_send_metrics_fails(mocker, caplog):
         "completion_tokens": 80,
         "total_tokens": 200,
     }
-    mock_get_metrics.return_value = (100, 5)  # (metric_value, requests_value)
+    mock_get_metrics.return_value = (50, 100, 5)  # (input, output, requests)
     # Mock send_metrics to raise an exception
     mock_send_metrics.side_effect = HTTPException(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -1740,7 +1862,8 @@ async def test_outlet_send_metrics_fails(mocker, caplog):
         instance="gpt-4-PZS0708-test_user",
     )
     mock_send_metrics.assert_called_once_with(
-        metric_value=300,  # 100 + 200
+        input_metric_value=170,  # 50 + 120
+        output_metric_value=180,  # 100 + 80
         requests_value=6,  # 5 + 1
         user_name="test_user",
         account="PZS0708",
