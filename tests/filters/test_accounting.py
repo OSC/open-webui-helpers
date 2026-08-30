@@ -1678,6 +1678,101 @@ async def test_outlet_completion_tokens_is_none(mocker, caplog):
     )
 
 
+async def test_outlet_completion_tokens_is_none_embed(mocker, caplog):
+    """Test outlet when usage is found but completion_tokens is None for embed model"""
+    # Mock external functions
+    mock_get_username = mocker.patch.object(accounting.Filter, "get_username")
+    mock_get_request_account = mocker.patch.object(
+        accounting.Filter, "get_request_account"
+    )
+    mock_get_usage = mocker.patch("filters.accounting.get_usage")
+    mock_get_metrics = mocker.patch.object(accounting.Filter, "get_metrics")
+    mock_send_metrics = mocker.patch.object(accounting.Filter, "send_metrics")
+    mock_send_error_metric = mocker.patch.object(accounting.Filter, "send_error_metric")
+
+    # Set up mock request
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/api/v1/chat",
+        "headers": [(b"host", b"PZS0708.chat.example.com")],
+    }
+    request = Request(scope=scope)
+
+    # Set up user data
+    user_data = {"name": "test_user", "id": "test_user_id"}
+
+    # Set up metadata
+    metadata = {"chat_id": "chat_123"}
+
+    # Set up model data
+    model_data = {"id": "Qwen/Qwen3-Embedding-0.6B"}
+
+    # Create filter instance
+    filter_instance = accounting.Filter()
+
+    # Test body with usage data
+    body = {
+        "id": "msg_123",
+        "model": "Qwen/Qwen3-Embedding-0.6B",
+        "messages": [
+            {"role": "user", "content": "Hello"},
+            {
+                "role": "assistant",
+                "content": "Hi there!",
+                "usage": {
+                    "prompt_tokens": 120,
+                    # No completion tokens
+                    "total_tokens": 120,
+                },
+            },
+        ],
+    }
+
+    # Mock external functions
+    mock_get_username.return_value = "test_user"
+    mock_get_request_account.return_value = "PZS0708"
+    mock_get_usage.return_value = {
+        "prompt_tokens": 120,
+        "total_tokens": 120,
+        # No completion tokens
+    }
+    mock_get_metrics.return_value = (0, 0, 0)  # (input, output, requests)
+    mock_send_metrics.return_value = None
+
+    # Call outlet
+    with caplog.at_level("INFO"):
+        result = await filter_instance.outlet(
+            body=body,
+            __user__=user_data,
+            __metadata__=metadata,
+            __request__=request,
+            __model__=model_data,
+        )
+
+    # Verify the result is the same as the input body
+    assert result == body
+
+    # Verify all external functions were called
+    mock_get_username.assert_called_once_with(__user__=user_data, __request__=request)
+    mock_get_request_account.assert_called_once_with(request, "test_user")
+    mock_get_usage.assert_called_once_with(body)
+    mock_get_metrics.assert_called_once_with(
+        instance="Qwen-Qwen3-Embedding-0.6B-PZS0708-test_user",
+    )
+    mock_send_metrics.assert_called_once_with(
+        input_metric_value=120,  # 0 + 120
+        output_metric_value=0,
+        requests_value=1,  # 0 + 1
+        user_name="test_user",
+        account="PZS0708",
+        model="Qwen/Qwen3-Embedding-0.6B",
+        instance="Qwen-Qwen3-Embedding-0.6B-PZS0708-test_user",
+    )
+    # Verify send_error_metric was NOT called on success
+    mock_send_error_metric.assert_not_called()
+
+
 async def test_outlet_get_metrics_fails(mocker, caplog):
     """Test outlet when get_metrics fails"""
     # Mock external functions

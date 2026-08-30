@@ -381,6 +381,11 @@ class Filter:
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Request lacks input token usage in the response: {usage}",
                 )
+            if "embed" in model.lower() and output_tokens is None:
+                self.logger.debug(
+                    f"Embed model {model} has no completion tokens, using output tokens 0"
+                )
+                output_tokens = 0
             if output_tokens is None:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
