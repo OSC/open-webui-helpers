@@ -1,4 +1,4 @@
-OPEN_WEBUI_VERSION := 0.10.2
+OPEN_WEBUI_VERSION := 0.11.3
 SED := $(shell command -v gsed 2>/dev/null || echo sed)
 
 # Define the dummy state file as your target
