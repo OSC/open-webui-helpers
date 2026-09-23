@@ -1,4 +1,4 @@
-OPEN_WEBUI_VERSION := 0.11.3
+OPEN_WEBUI_VERSION := 0.11.4
 SED := $(shell command -v gsed 2>/dev/null || echo sed)
 # 1. Define the potential path to the virtual environment interpreter
 VENV_PYTHON := .venv/bin/python
