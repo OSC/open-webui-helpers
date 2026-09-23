@@ -38,7 +38,12 @@ class Filter:
         __model__: dict = {},
     ) -> dict:
         idx = __model__.get("urlIdx", None)
-        backends = await Config.get("openai.api_base_urls") or []
+        values = await Config.get_many(
+            "openai.api_base_urls", "openai.api_keys", "openai.api_configs"
+        )
+        backends = values.get("openai.api_base_urls") or []
+        api_keys = values.get("openai.api_keys") or []
+        api_configs = values.get("openai.api_configs") or {}
         backend_url = None
         if idx is not None and len(backends) > 0:
             backend_url = backends[idx]
@@ -58,6 +63,23 @@ class Filter:
         headers = {
             "Content-Type": "application/json",
         }
+
+        # Add Bearer token header if configured
+        if idx is not None and len(api_keys) > idx and len(api_configs) > idx:
+            api_key = api_keys[idx]
+            auth_config = api_configs[idx]
+            auth_type = (
+                auth_config.get("auth_type", "bearer")
+                if isinstance(auth_config, dict)
+                else "bearer"
+            )
+
+            if auth_type == "bearer" and api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
+                self.logger.debug(
+                    f"Bearer token authentication enabled for backend: backend={backend_url}"
+                )
+
         models = None
         async with httpx.AsyncClient() as client:
             r = await client.get(f"{backend_url}/models", headers=headers)
@@ -141,12 +163,16 @@ dynamo_pending_request{{model="{metric_model}",namespace="{self.valves.k8_namesp
         }
         # Run the query twice to ensure the metric gets triggered
         async with httpx.AsyncClient() as client:
-            r = await client.post(f"{backend_url}/chat/completions", json=payload)
+            r = await client.post(
+                f"{backend_url}/chat/completions", json=payload, headers=headers
+            )
             self.logger.info(
                 f"Scale up request completed (first): status={r.status_code} body={r.text}"
             )
             await asyncio.sleep(2)
-            r = await client.post(f"{backend_url}/chat/completions", json=payload)
+            r = await client.post(
+                f"{backend_url}/chat/completions", json=payload, headers=headers
+            )
             self.logger.info(
                 f"Scale up request completed (second): status={r.status_code} body={r.text}"
             )
