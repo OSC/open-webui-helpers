@@ -65,9 +65,9 @@ class Filter:
         }
 
         # Add Bearer token header if configured
-        if idx is not None and len(api_keys) > idx and len(api_configs) > idx:
+        if idx is not None and len(api_keys) > idx:
             api_key = api_keys[idx]
-            auth_config = api_configs[idx]
+            auth_config = api_configs.get(str(idx), {})
             auth_type = (
                 auth_config.get("auth_type", "bearer")
                 if isinstance(auth_config, dict)
