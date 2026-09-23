@@ -29,8 +29,14 @@ async def test_inlet_models_found_success(httpx_mock):
     # Test body
     body = {"model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}]}
 
-    # Mock Config.get to return backends
-    Config.get = AsyncMock(return_value=["http://backend.example.com"])
+    # Mock Config.get_many to return backends, api_keys, and api_configs
+    Config.get_many = AsyncMock(
+        return_value={
+            "openai.api_base_urls": ["http://backend.example.com"],
+            "openai.api_keys": [],
+            "openai.api_configs": [],
+        }
+    )
 
     # Mock httpx client to return models (success)
     httpx_mock.add_response(
@@ -91,8 +97,14 @@ async def test_inlet_model_not_found_wait_enabled_scale_up_then_found(
     # Test body
     body = {"model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}]}
 
-    # Mock Config.get to return backends
-    Config.get = AsyncMock(return_value=["http://backend.example.com"])
+    # Mock Config.get_many to return backends, api_keys, and api_configs
+    Config.get_many = AsyncMock(
+        return_value={
+            "openai.api_base_urls": ["http://backend.example.com"],
+            "openai.api_keys": [],
+            "openai.api_configs": [],
+        }
+    )
 
     # Mock httpx client responses:
     # First call: no models (scale up needed)
@@ -183,8 +195,14 @@ async def test_inlet_model_not_found_oscchat_user_without_wait_header(
     # Test body
     body = {"model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}]}
 
-    # Mock Config.get to return backends
-    Config.get = AsyncMock(return_value=["http://backend.example.com"])
+    # Mock Config.get_many to return backends, api_keys, and api_configs
+    Config.get_many = AsyncMock(
+        return_value={
+            "openai.api_base_urls": ["http://backend.example.com"],
+            "openai.api_keys": [],
+            "openai.api_configs": [],
+        }
+    )
 
     # Mock httpx client responses:
     # First call: no models (scale up needed)
@@ -273,8 +291,14 @@ async def test_inlet_model_not_found_wait_disabled_raises_exception(httpx_mock):
     # Test body
     body = {"model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}]}
 
-    # Mock Config.get to return backends
-    Config.get = AsyncMock(return_value=["http://backend.example.com"])
+    # Mock Config.get_many to return backends, api_keys, and api_configs
+    Config.get_many = AsyncMock(
+        return_value={
+            "openai.api_base_urls": ["http://backend.example.com"],
+            "openai.api_keys": [],
+            "openai.api_configs": [],
+        }
+    )
 
     # Mock httpx client responses:
     # First call: no models (scale up needed)
@@ -341,8 +365,14 @@ async def test_inlet_model_not_found_wait_enabled_scale_up_then_not_found_raises
     # Test body
     body = {"model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}]}
 
-    # Mock Config.get to return backends
-    Config.get = AsyncMock(return_value=["http://backend.example.com"])
+    # Mock Config.get_many to return backends, api_keys, and api_configs
+    Config.get_many = AsyncMock(
+        return_value={
+            "openai.api_base_urls": ["http://backend.example.com"],
+            "openai.api_keys": [],
+            "openai.api_configs": [],
+        }
+    )
 
     # Mock httpx client responses:
     # First call: no models (scale up needed)
@@ -416,8 +446,14 @@ async def test_inlet_query_models_fails_raises_exception(httpx_mock):
     # Test body
     body = {"model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}]}
 
-    # Mock Config.get to return backends
-    Config.get = AsyncMock(return_value=["http://backend.example.com"])
+    # Mock Config.get_many to return backends, api_keys, and api_configs
+    Config.get_many = AsyncMock(
+        return_value={
+            "openai.api_base_urls": ["http://backend.example.com"],
+            "openai.api_keys": [],
+            "openai.api_configs": [],
+        }
+    )
 
     # Mock httpx client to return 500 error on models query
     httpx_mock.add_response(
@@ -472,8 +508,14 @@ async def test_inlet_wait_loop_models_query_fails(httpx_mock, caplog, mocker):
     # Test body
     body = {"model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}]}
 
-    # Mock Config.get to return backends
-    Config.get = AsyncMock(return_value=["http://backend.example.com"])
+    # Mock Config.get_many to return backends, api_keys, and api_configs
+    Config.get_many = AsyncMock(
+        return_value={
+            "openai.api_base_urls": ["http://backend.example.com"],
+            "openai.api_keys": [],
+            "openai.api_configs": [],
+        }
+    )
 
     # Mock httpx client responses:
     # First call: no models (scale up needed)
@@ -554,11 +596,17 @@ async def test_inlet_without_url_idx(mocker, caplog):
     # Test body
     body = {"model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}]}
 
-    # Mock Config.get to return backends
+    # Mock Config.get_many to return backends, api_keys, and api_configs
     from unittest.mock import AsyncMock
     from open_webui.models.config import Config
 
-    Config.get = AsyncMock(return_value=["http://backend.example.com"])
+    Config.get_many = AsyncMock(
+        return_value={
+            "openai.api_base_urls": ["http://backend.example.com"],
+            "openai.api_keys": [],
+            "openai.api_configs": [],
+        }
+    )
     bound_data = []
 
     def sink(message):
@@ -583,3 +631,129 @@ async def test_inlet_without_url_idx(mocker, caplog):
         assert bound_data[0]["model_metadata"] == model_data
     finally:
         logger.remove(handler_id)
+
+
+async def test_inlet_with_api_key_and_empty_configs_defaults_to_bearer(
+    httpx_mock, caplog
+):
+    """Test inlet when api_keys is present but api_configs is empty, should default to auth_type=bearer"""
+    # Set up mock request
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/api/v1/chat",
+        "headers": [(b"host", b"example.com")],
+    }
+    request = Request(scope=scope)
+
+    # Set up metadata (not from WebUI)
+    metadata = {"interface": "api"}
+
+    # Set up model data with urlIdx
+    model_data = {"id": "gpt-4", "urlIdx": 0}
+
+    # Create filter instance
+    filter_instance = backend_check.Filter()
+
+    # Test body
+    body = {"model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}]}
+
+    # Mock Config.get_many to return backends, api_keys (with value), and empty api_configs
+    Config.get_many = AsyncMock(
+        return_value={
+            "openai.api_base_urls": ["http://backend.example.com"],
+            "openai.api_keys": ["test-api-key-123"],
+            "openai.api_configs": [{}],  # Empty dict - should default to bearer
+        }
+    )
+
+    # Mock httpx client to return models (success)
+    httpx_mock.add_response(
+        url="http://backend.example.com/models",
+        method="GET",
+        json={"data": [{"id": "gpt-4"}]},
+        status_code=200,
+    )
+
+    # Call inlet with caplog to capture logs
+    with caplog.at_level("DEBUG"):
+        result = await filter_instance.inlet(
+            body=body,
+            __user__=None,
+            __metadata__=metadata,
+            __request__=request,
+            __model__=model_data,
+        )
+
+    # Verify the result is the same as the input body
+    assert result == body
+
+    # Verify request was made with Authorization header
+    requests = httpx_mock.get_requests()
+    assert len(requests) == 1
+    assert requests[0].headers.get("authorization") == "Bearer test-api-key-123"
+
+    # Verify Bearer token authentication was logged
+    assert "Bearer token authentication enabled" in caplog.text
+
+
+async def test_inlet_with_api_key_and_bearer_auth_type(httpx_mock, caplog):
+    """Test inlet when api_keys is present and api_configs explicitly sets auth_type=bearer"""
+    # Set up mock request
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/api/v1/chat",
+        "headers": [(b"host", b"example.com")],
+    }
+    request = Request(scope=scope)
+
+    # Set up metadata (not from WebUI)
+    metadata = {"interface": "api"}
+
+    # Set up model data with urlIdx
+    model_data = {"id": "gpt-4", "urlIdx": 0}
+
+    # Create filter instance
+    filter_instance = backend_check.Filter()
+
+    # Test body
+    body = {"model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}]}
+
+    # Mock Config.get_many to return backends, api_keys, and api_configs with explicit bearer auth
+    Config.get_many = AsyncMock(
+        return_value={
+            "openai.api_base_urls": ["http://backend.example.com"],
+            "openai.api_keys": ["explicit-bearer-key-456"],
+            "openai.api_configs": [{"auth_type": "bearer"}],  # Explicitly set to bearer
+        }
+    )
+
+    # Mock httpx client to return models (success)
+    httpx_mock.add_response(
+        url="http://backend.example.com/models",
+        method="GET",
+        json={"data": [{"id": "gpt-4"}]},
+        status_code=200,
+    )
+
+    # Call inlet with caplog to capture logs
+    with caplog.at_level("DEBUG"):
+        result = await filter_instance.inlet(
+            body=body,
+            __user__=None,
+            __metadata__=metadata,
+            __request__=request,
+            __model__=model_data,
+        )
+
+    # Verify the result is the same as the input body
+    assert result == body
+
+    # Verify request was made with Authorization header
+    requests = httpx_mock.get_requests()
+    assert len(requests) == 1
+    assert requests[0].headers.get("authorization") == "Bearer explicit-bearer-key-456"
+
+    # Verify Bearer token authentication was logged
+    assert "Bearer token authentication enabled" in caplog.text
