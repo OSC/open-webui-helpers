@@ -34,7 +34,7 @@ async def test_inlet_models_found_success(httpx_mock):
         return_value={
             "openai.api_base_urls": ["http://backend.example.com"],
             "openai.api_keys": [],
-            "openai.api_configs": [],
+            "openai.api_configs": {},
         }
     )
 
@@ -102,7 +102,7 @@ async def test_inlet_model_not_found_wait_enabled_scale_up_then_found(
         return_value={
             "openai.api_base_urls": ["http://backend.example.com"],
             "openai.api_keys": [],
-            "openai.api_configs": [],
+            "openai.api_configs": {},
         }
     )
 
@@ -200,7 +200,7 @@ async def test_inlet_model_not_found_oscchat_user_without_wait_header(
         return_value={
             "openai.api_base_urls": ["http://backend.example.com"],
             "openai.api_keys": [],
-            "openai.api_configs": [],
+            "openai.api_configs": {},
         }
     )
 
@@ -296,7 +296,7 @@ async def test_inlet_model_not_found_wait_disabled_raises_exception(httpx_mock):
         return_value={
             "openai.api_base_urls": ["http://backend.example.com"],
             "openai.api_keys": [],
-            "openai.api_configs": [],
+            "openai.api_configs": {},
         }
     )
 
@@ -370,7 +370,7 @@ async def test_inlet_model_not_found_wait_enabled_scale_up_then_not_found_raises
         return_value={
             "openai.api_base_urls": ["http://backend.example.com"],
             "openai.api_keys": [],
-            "openai.api_configs": [],
+            "openai.api_configs": {},
         }
     )
 
@@ -451,7 +451,7 @@ async def test_inlet_query_models_fails_raises_exception(httpx_mock):
         return_value={
             "openai.api_base_urls": ["http://backend.example.com"],
             "openai.api_keys": [],
-            "openai.api_configs": [],
+            "openai.api_configs": {},
         }
     )
 
@@ -513,7 +513,7 @@ async def test_inlet_wait_loop_models_query_fails(httpx_mock, caplog, mocker):
         return_value={
             "openai.api_base_urls": ["http://backend.example.com"],
             "openai.api_keys": [],
-            "openai.api_configs": [],
+            "openai.api_configs": {},
         }
     )
 
@@ -604,7 +604,7 @@ async def test_inlet_without_url_idx(mocker, caplog):
         return_value={
             "openai.api_base_urls": ["http://backend.example.com"],
             "openai.api_keys": [],
-            "openai.api_configs": [],
+            "openai.api_configs": {},
         }
     )
     bound_data = []
@@ -663,7 +663,7 @@ async def test_inlet_with_api_key_and_empty_configs_defaults_to_bearer(
         return_value={
             "openai.api_base_urls": ["http://backend.example.com"],
             "openai.api_keys": ["test-api-key-123"],
-            "openai.api_configs": [{}],  # Empty dict - should default to bearer
+            "openai.api_configs": {},  # Empty dict - should default to bearer
         }
     )
 
@@ -725,7 +725,9 @@ async def test_inlet_with_api_key_and_bearer_auth_type(httpx_mock, caplog):
         return_value={
             "openai.api_base_urls": ["http://backend.example.com"],
             "openai.api_keys": ["explicit-bearer-key-456"],
-            "openai.api_configs": [{"auth_type": "bearer"}],  # Explicitly set to bearer
+            "openai.api_configs": {
+                "0": {"auth_type": "bearer"}
+            },  # Explicitly set to bearer
         }
     )
 
