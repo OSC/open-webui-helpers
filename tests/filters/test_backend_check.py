@@ -725,7 +725,9 @@ async def test_inlet_with_api_key_and_bearer_auth_type(httpx_mock, caplog):
         return_value={
             "openai.api_base_urls": ["http://backend.example.com"],
             "openai.api_keys": ["explicit-bearer-key-456"],
-            "openai.api_configs": {"0": {"auth_type": "bearer"}},  # Explicitly set to bearer
+            "openai.api_configs": {
+                "0": {"auth_type": "bearer"}
+            },  # Explicitly set to bearer
         }
     )
 
