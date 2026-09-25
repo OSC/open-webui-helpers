@@ -2287,15 +2287,14 @@ async def test_outlet_uses_redis_lock_when_available(
 
 
 async def test_outlet_redis_lock_error(mocker, caplog, temp_lock_dir, fake_redis):
-    """Test outlet when Redis lock raises LockError"""
-    from redis.asyncio.lock import LockError as RedisLockError
-
+    """Test outlet when Redis lock times out waiting to acquire"""
     # Mock external functions
     mock_get_username = mocker.patch.object(accounting.Filter, "get_username")
     mock_get_request_account = mocker.patch.object(
         accounting.Filter, "get_request_account"
     )
     mock_get_usage = mocker.patch("filters.accounting.get_usage")
+    mock_get_metrics = mocker.patch.object(accounting.Filter, "get_metrics")
     mock_send_error_metric = mocker.patch.object(accounting.Filter, "send_error_metric")
 
     # Set up mock request with app.state.redis
@@ -2326,6 +2325,8 @@ async def test_outlet_redis_lock_error(mocker, caplog, temp_lock_dir, fake_redis
     # Create filter instance and set lock_dir to temp directory
     filter_instance = accounting.Filter()
     filter_instance.valves.lock_dir = temp_lock_dir
+    # Set lock timeout to 1 second
+    filter_instance.lock_timeout = 1
 
     # Test body with usage data
     body = {
@@ -2354,15 +2355,14 @@ async def test_outlet_redis_lock_error(mocker, caplog, temp_lock_dir, fake_redis
         "total_tokens": 200,
     }
 
-    # Mock Redis lock method to raise LockError
-    from contextlib import asynccontextmanager
+    # Stub get_metrics with an extra sleep to force a lock timeout
+    def stub_with_sleep(*args, **kwargs):
+        import time
 
-    @asynccontextmanager
-    async def mock_lock_context(*args, **kwargs):
-        raise RedisLockError("Redis lock error")
-        yield  # Never reached, but required for asynccontextmanager
+        time.sleep(2)
+        return (0, 0, 0)
 
-    fake_redis.lock = mock_lock_context
+    mock_get_metrics.side_effect = stub_with_sleep
 
     # Call outlet - should catch LockError and log error
     with caplog.at_level("ERROR"):
