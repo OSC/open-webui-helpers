@@ -7,6 +7,7 @@ import httpx
 from loguru import logger
 from typing import Any
 from filelock import AsyncFileLock, Timeout
+from redis.asyncio.lock import LockError
 from ldap3 import Server, Connection, ALL, ServerPool, FIRST
 from ldap3.utils.conv import escape_filter_chars
 
@@ -71,6 +72,7 @@ class Filter:
     def __init__(self):
         self.valves = self.Valves()
         self.logger = logger
+        self.lock_timeout = 5
         self.shared_users = ["oscchat"]
         self.username_header = "x-osc-user"
         self.error_tag = "accounting-error"
@@ -393,8 +395,18 @@ class Filter:
                 )
 
             instance = f"{model_escaped}-{account}-{user_name}"
+            redis = None
+            if (
+                hasattr(__request__, "scope")
+                and "app" in __request__.scope
+                and hasattr(__request__.app, "state")
+                and hasattr(__request__.app.state, "redis")
+            ):
+                redis = __request__.app.state.redis
             lock_file_path = os.path.join(self.valves.lock_dir, f"{instance}.lock")
             lock = AsyncFileLock(lock_file_path)
+            if redis is not None:
+                lock = redis.lock(name=instance, timeout=self.lock_timeout)
             async with lock:
                 start_time = time.perf_counter()
                 input_metric_value, output_metric_value, requests_value = (
@@ -428,7 +440,7 @@ class Filter:
                 end_time = time.perf_counter()
                 elapsed_time = end_time - start_time
                 self.logger.debug(f"Metrics took {elapsed_time}")
-        except Timeout:
+        except Timeout as e:
             self.logger.bind(
                 error_tag=self.error_tag,
                 id=chat_id,
@@ -436,9 +448,20 @@ class Filter:
                 account=account,
                 model=model,
             ).error(
-                "Timeout waiting for lock",
+                f"Timeout waiting for lock: {e}",
             )
             error = "lock timeout"
+        except LockError as e:
+            self.logger.bind(
+                error_tag=self.error_tag,
+                id=chat_id,
+                user=user_name,
+                account=account,
+                model=model,
+            ).error(
+                f"Lock error: {e}",
+            )
+            error = "lock error"
         except HTTPException as e:
             self.logger.bind(
                 error_tag=self.error_tag,

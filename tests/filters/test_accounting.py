@@ -9,6 +9,24 @@ from fastapi import Request, HTTPException, status
 from filelock import Timeout
 from ldap3 import Server, Connection, MOCK_SYNC
 
+
+@pytest.fixture
+def temp_lock_dir():
+    """Create a temporary directory for lock files in tests"""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        yield tmpdir
+
+
+@pytest.fixture
+async def fake_redis():
+    """Create a fake Redis instance for testing Redis lock behavior"""
+    import fakeredis.aioredis
+
+    client = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    yield client
+    await client.close()
+
+
 # ==================== LDAP Fallback Tests ====================
 
 
@@ -1216,7 +1234,7 @@ async def test_inlet_get_account_fails(mocker):
     mock_get_request_account.assert_called_once_with(request, "test_user")
 
 
-async def test_outlet_successful_call(mocker, caplog):
+async def test_outlet_successful_call(mocker, caplog, temp_lock_dir):
     """Test successful outlet call with body returned"""
     # Mock external functions
     mock_get_username = mocker.patch.object(accounting.Filter, "get_username")
@@ -1246,8 +1264,9 @@ async def test_outlet_successful_call(mocker, caplog):
     # Set up model data
     model_data = {"id": "ai/gpt-4"}
 
-    # Create filter instance
+    # Create filter instance and set lock_dir to temp directory
     filter_instance = accounting.Filter()
+    filter_instance.valves.lock_dir = temp_lock_dir
 
     # Test body with usage data
     body = {
@@ -1311,7 +1330,7 @@ async def test_outlet_successful_call(mocker, caplog):
     mock_send_error_metric.assert_not_called()
 
 
-async def test_outlet_user_missing_info(mocker, caplog):
+async def test_outlet_user_missing_info(mocker, caplog, temp_lock_dir):
     """Test outlet when user name or user id is missing"""
     # Mock get_username and get_request_account (should not be called)
     mock_get_username = mocker.patch.object(accounting.Filter, "get_username")
@@ -1339,8 +1358,9 @@ async def test_outlet_user_missing_info(mocker, caplog):
     # Set up model data
     model_data = {"id": "gpt-4"}
 
-    # Create filter instance
+    # Create filter instance and set lock_dir to temp directory
     filter_instance = accounting.Filter()
+    filter_instance.valves.lock_dir = temp_lock_dir
 
     # Test body
     body = {"model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}]}
@@ -1376,7 +1396,7 @@ async def test_outlet_user_missing_info(mocker, caplog):
     )
 
 
-async def test_outlet_get_account_fails(mocker, caplog):
+async def test_outlet_get_account_fails(mocker, caplog, temp_lock_dir):
     """Test outlet when getting account fails"""
     # Mock get_username and get_request_account to raise an exception
     mock_get_username = mocker.patch.object(accounting.Filter, "get_username")
@@ -1404,8 +1424,9 @@ async def test_outlet_get_account_fails(mocker, caplog):
     # Set up model data
     model_data = {"id": "gpt-4"}
 
-    # Create filter instance
+    # Create filter instance and set lock_dir to temp directory
     filter_instance = accounting.Filter()
+    filter_instance.valves.lock_dir = temp_lock_dir
 
     # Test body
     body = {"model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}]}
@@ -1443,7 +1464,7 @@ async def test_outlet_get_account_fails(mocker, caplog):
     mock_send_error_metric.assert_called_once_with(error="Account not valid")
 
 
-async def test_outlet_usage_missing(mocker, caplog):
+async def test_outlet_usage_missing(mocker, caplog, temp_lock_dir):
     """Test outlet when usage is missing"""
     # Mock external functions
     mock_get_request_account = mocker.patch.object(
@@ -1470,8 +1491,9 @@ async def test_outlet_usage_missing(mocker, caplog):
     # Set up model data
     model_data = {"id": "gpt-4"}
 
-    # Create filter instance
+    # Create filter instance and set lock_dir to temp directory
     filter_instance = accounting.Filter()
+    filter_instance.valves.lock_dir = temp_lock_dir
 
     # Test body without usage
     body = {"model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}]}
@@ -1508,7 +1530,7 @@ async def test_outlet_usage_missing(mocker, caplog):
     )
 
 
-async def test_outlet_prompt_tokens_is_none(mocker, caplog):
+async def test_outlet_prompt_tokens_is_none(mocker, caplog, temp_lock_dir):
     """Test outlet when usage is found but prompt_tokens is None"""
     # Mock external functions
     mock_get_username = mocker.patch.object(accounting.Filter, "get_username")
@@ -1536,8 +1558,9 @@ async def test_outlet_prompt_tokens_is_none(mocker, caplog):
     # Set up model data
     model_data = {"id": "gpt-4"}
 
-    # Create filter instance
+    # Create filter instance and set lock_dir to temp directory
     filter_instance = accounting.Filter()
+    filter_instance.valves.lock_dir = temp_lock_dir
 
     # Test body with usage that has no prompt_tokens
     body = {
@@ -1593,7 +1616,7 @@ async def test_outlet_prompt_tokens_is_none(mocker, caplog):
     )
 
 
-async def test_outlet_completion_tokens_is_none(mocker, caplog):
+async def test_outlet_completion_tokens_is_none(mocker, caplog, temp_lock_dir):
     """Test outlet when usage is found but completion_tokens is None"""
     # Mock external functions
     mock_get_username = mocker.patch.object(accounting.Filter, "get_username")
@@ -1621,8 +1644,9 @@ async def test_outlet_completion_tokens_is_none(mocker, caplog):
     # Set up model data
     model_data = {"id": "gpt-4"}
 
-    # Create filter instance
+    # Create filter instance and set lock_dir to temp directory
     filter_instance = accounting.Filter()
+    filter_instance.valves.lock_dir = temp_lock_dir
 
     # Test body with usage that has no completion_tokens
     body = {
@@ -1678,7 +1702,7 @@ async def test_outlet_completion_tokens_is_none(mocker, caplog):
     )
 
 
-async def test_outlet_completion_tokens_is_none_embed(mocker, caplog):
+async def test_outlet_completion_tokens_is_none_embed(mocker, caplog, temp_lock_dir):
     """Test outlet when usage is found but completion_tokens is None for embed model"""
     # Mock external functions
     mock_get_username = mocker.patch.object(accounting.Filter, "get_username")
@@ -1708,8 +1732,9 @@ async def test_outlet_completion_tokens_is_none_embed(mocker, caplog):
     # Set up model data
     model_data = {"id": "Qwen/Qwen3-Embedding-0.6B"}
 
-    # Create filter instance
+    # Create filter instance and set lock_dir to temp directory
     filter_instance = accounting.Filter()
+    filter_instance.valves.lock_dir = temp_lock_dir
 
     # Test body with usage data
     body = {
@@ -1773,7 +1798,7 @@ async def test_outlet_completion_tokens_is_none_embed(mocker, caplog):
     mock_send_error_metric.assert_not_called()
 
 
-async def test_outlet_get_metrics_fails(mocker, caplog):
+async def test_outlet_get_metrics_fails(mocker, caplog, temp_lock_dir):
     """Test outlet when get_metrics fails"""
     # Mock external functions
     mock_get_username = mocker.patch.object(accounting.Filter, "get_username")
@@ -1803,8 +1828,9 @@ async def test_outlet_get_metrics_fails(mocker, caplog):
     # Set up model data
     model_data = {"id": "gpt-4"}
 
-    # Create filter instance
+    # Create filter instance and set lock_dir to temp directory
     filter_instance = accounting.Filter()
+    filter_instance.valves.lock_dir = temp_lock_dir
 
     # Test body with usage data
     body = {
@@ -1870,7 +1896,7 @@ async def test_outlet_get_metrics_fails(mocker, caplog):
     assert "Database connection failed" in caplog.text
 
 
-async def test_outlet_send_metrics_fails(mocker, caplog):
+async def test_outlet_send_metrics_fails(mocker, caplog, temp_lock_dir):
     """Test outlet when send_metrics fails"""
     # Mock external functions
     mock_get_username = mocker.patch.object(accounting.Filter, "get_username")
@@ -1900,8 +1926,9 @@ async def test_outlet_send_metrics_fails(mocker, caplog):
     # Set up model data
     model_data = {"id": "gpt-4"}
 
-    # Create filter instance
+    # Create filter instance and set lock_dir to temp directory
     filter_instance = accounting.Filter()
+    filter_instance.valves.lock_dir = temp_lock_dir
 
     # Test body with usage data
     body = {
@@ -1975,7 +2002,7 @@ async def test_outlet_send_metrics_fails(mocker, caplog):
     assert "Pushgateway connection failed" in caplog.text
 
 
-async def test_outlet_timeout_waiting_for_lock(mocker, caplog):
+async def test_outlet_timeout_waiting_for_lock(mocker, caplog, temp_lock_dir):
     """Test outlet when a Timeout exception occurs waiting for lock
 
     This test uses mock_lock to raise filelock.Timeout when entering the
@@ -2008,8 +2035,9 @@ async def test_outlet_timeout_waiting_for_lock(mocker, caplog):
     # Set up model data
     model_data = {"id": "gpt-4"}
 
-    # Create filter instance
+    # Create filter instance and set lock_dir to temp directory
     filter_instance = accounting.Filter()
+    filter_instance.valves.lock_dir = temp_lock_dir
 
     # Test body with usage data
     body = {
@@ -2061,7 +2089,7 @@ async def test_outlet_timeout_waiting_for_lock(mocker, caplog):
     mock_send_error_metric.assert_called_once_with(error="lock timeout")
 
 
-async def test_outlet_generic_exception(mocker, caplog):
+async def test_outlet_generic_exception(mocker, caplog, temp_lock_dir):
     """Test outlet when an unhandled exception occurs"""
     # Mock external functions
     mock_get_username = mocker.patch.object(accounting.Filter, "get_username")
@@ -2089,8 +2117,9 @@ async def test_outlet_generic_exception(mocker, caplog):
     # Set up model data
     model_data = {"id": "gpt-4"}
 
-    # Create filter instance
+    # Create filter instance and set lock_dir to temp directory
     filter_instance = accounting.Filter()
+    filter_instance.valves.lock_dir = temp_lock_dir
 
     # Test body with usage data
     body = {
@@ -2147,3 +2176,210 @@ async def test_outlet_generic_exception(mocker, caplog):
     assert "An unhandled exception occurred" in caplog.text
     # Verify send_error_metric was called with the error
     mock_send_error_metric.assert_called_once_with(error="exception")
+
+
+# ==================== Redis Lock Tests ====================
+
+
+async def test_outlet_uses_redis_lock_when_available(
+    mocker, caplog, temp_lock_dir, fake_redis
+):
+    """Test that outlet uses Redis lock when Redis is available in request.app.state"""
+    # Mock external functions
+    mock_get_username = mocker.patch.object(accounting.Filter, "get_username")
+    mock_get_request_account = mocker.patch.object(
+        accounting.Filter, "get_request_account"
+    )
+    mock_get_usage = mocker.patch("filters.accounting.get_usage")
+    mock_get_metrics = mocker.patch.object(accounting.Filter, "get_metrics")
+    mock_send_metrics = mocker.patch.object(accounting.Filter, "send_metrics")
+    mock_send_error_metric = mocker.patch.object(accounting.Filter, "send_error_metric")
+
+    # Set up mock request with app.state.redis
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/api/v1/chat",
+        "headers": [(b"host", b"PZS0708.chat.example.com")],
+    }
+    request = Request(scope=scope)
+
+    # Create a mock app with state and redis
+    from types import SimpleNamespace
+
+    mock_state = SimpleNamespace(redis=fake_redis)
+    mock_app = SimpleNamespace(state=mock_state)
+    request.scope["app"] = mock_app
+
+    # Set up user data
+    user_data = {"name": "test_user", "id": "test_user_id"}
+
+    # Set up metadata
+    metadata = {"chat_id": "chat_123"}
+
+    # Set up model data
+    model_data = {"id": "ai/gpt-4"}
+
+    # Create filter instance and set lock_dir to temp directory
+    filter_instance = accounting.Filter()
+    filter_instance.valves.lock_dir = temp_lock_dir
+
+    # Test body with usage data
+    body = {
+        "id": "msg_123",
+        "model": "ai/gpt-4",
+        "messages": [
+            {"role": "user", "content": "Hello"},
+            {
+                "role": "assistant",
+                "content": "Hi there!",
+                "usage": {
+                    "prompt_tokens": 120,
+                    "completion_tokens": 80,
+                    "total_tokens": 200,
+                },
+            },
+        ],
+    }
+
+    # Mock external functions
+    mock_get_username.return_value = "test_user"
+    mock_get_request_account.return_value = "PZS0708"
+    mock_get_usage.return_value = {
+        "prompt_tokens": 120,
+        "completion_tokens": 80,
+        "total_tokens": 200,
+    }
+    mock_get_metrics.return_value = (0, 0, 0)  # (input, output, requests)
+    mock_send_metrics.return_value = None
+
+    # Call outlet
+    with caplog.at_level("INFO"):
+        result = await filter_instance.outlet(
+            body=body,
+            __user__=user_data,
+            __metadata__=metadata,
+            __request__=request,
+            __model__=model_data,
+        )
+
+    # Verify the result is the same as the input body
+    assert result == body
+
+    # Verify all external functions were called
+    mock_get_username.assert_called_once_with(__user__=user_data, __request__=request)
+    mock_get_request_account.assert_called_once_with(request, "test_user")
+    mock_get_usage.assert_called_once_with(body)
+    mock_get_metrics.assert_called_once_with(
+        instance="ai-gpt-4-PZS0708-test_user",
+    )
+    mock_send_metrics.assert_called_once_with(
+        input_metric_value=120,  # 0 + 120
+        output_metric_value=80,  # 0 + 80
+        requests_value=1,  # 0 + 1
+        user_name="test_user",
+        account="PZS0708",
+        model="ai/gpt-4",
+        instance="ai-gpt-4-PZS0708-test_user",
+    )
+    # Verify send_error_metric was NOT called on success
+    mock_send_error_metric.assert_not_called()
+
+
+async def test_outlet_redis_lock_error(mocker, caplog, temp_lock_dir, fake_redis):
+    """Test outlet when Redis lock raises LockError"""
+    from redis.asyncio.lock import LockError as RedisLockError
+
+    # Mock external functions
+    mock_get_username = mocker.patch.object(accounting.Filter, "get_username")
+    mock_get_request_account = mocker.patch.object(
+        accounting.Filter, "get_request_account"
+    )
+    mock_get_usage = mocker.patch("filters.accounting.get_usage")
+    mock_send_error_metric = mocker.patch.object(accounting.Filter, "send_error_metric")
+
+    # Set up mock request with app.state.redis
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/api/v1/chat",
+        "headers": [(b"host", b"PZS0708.chat.example.com")],
+    }
+    request = Request(scope=scope)
+
+    # Create a mock app with state and redis
+    from types import SimpleNamespace
+
+    mock_state = SimpleNamespace(redis=fake_redis)
+    mock_app = SimpleNamespace(state=mock_state)
+    request.scope["app"] = mock_app
+
+    # Set up user data
+    user_data = {"name": "test_user", "id": "test_user_id"}
+
+    # Set up metadata
+    metadata = {"chat_id": "chat_123"}
+
+    # Set up model data
+    model_data = {"id": "gpt-4"}
+
+    # Create filter instance and set lock_dir to temp directory
+    filter_instance = accounting.Filter()
+    filter_instance.valves.lock_dir = temp_lock_dir
+
+    # Test body with usage data
+    body = {
+        "id": "msg_123",
+        "model": "gpt-4",
+        "messages": [
+            {"role": "user", "content": "Hello"},
+            {
+                "role": "assistant",
+                "content": "Hi there!",
+                "usage": {
+                    "prompt_tokens": 120,
+                    "completion_tokens": 80,
+                    "total_tokens": 200,
+                },
+            },
+        ],
+    }
+
+    # Mock external functions
+    mock_get_username.return_value = "test_user"
+    mock_get_request_account.return_value = "PZS0708"
+    mock_get_usage.return_value = {
+        "prompt_tokens": 120,
+        "completion_tokens": 80,
+        "total_tokens": 200,
+    }
+
+    # Mock Redis lock method to raise LockError
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def mock_lock_context(*args, **kwargs):
+        raise RedisLockError("Redis lock error")
+        yield  # Never reached, but required for asynccontextmanager
+
+    fake_redis.lock = mock_lock_context
+
+    # Call outlet - should catch LockError and log error
+    with caplog.at_level("ERROR"):
+        result = await filter_instance.outlet(
+            body=body,
+            __user__=user_data,
+            __metadata__=metadata,
+            __request__=request,
+            __model__=model_data,
+        )
+
+    # Verify the result is the same as the input body (returned normally)
+    assert result == body
+
+    # Verify get_username was called
+    mock_get_username.assert_called_once_with(__user__=user_data, __request__=request)
+    # Verify error message was logged for lock error
+    assert "Lock error" in caplog.text
+    # Verify send_error_metric was called with "lock error"
+    mock_send_error_metric.assert_called_once_with(error="lock error")
