@@ -20,6 +20,7 @@ class Filter:
         __request__: Request = None,
         __model__: dict = {},
     ) -> dict:
+        request_host = __request__.url.hostname
         url_path = __request__.url.path if __request__ else "unknown"
         chat_id = __metadata__.get("chat_id") if __metadata__ else None
         user_name = __user__.get("name", "unknown") if __user__ else "anonymous"
@@ -37,6 +38,7 @@ class Filter:
 
         self.logger.bind(
             user=user_name,
+            host=request_host,
             path=url_path,
             model=model,
             backend=backend_url,

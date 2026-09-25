@@ -62,6 +62,7 @@ async def test_inlet_successful_call(mocker, caplog):
         assert "Request" in caplog.text
         # Verify bound data was captured
         assert bound_data[0]["user"] == "test_user"
+        assert bound_data[0]["host"] == "example.com"
         assert bound_data[0]["path"] == "/api/v1/chat"
         assert bound_data[0]["model"] == "gpt-4"
         assert bound_data[0]["backend"] == "http://backend.example.com"
@@ -128,6 +129,7 @@ async def test_inlet_without_metadata(mocker, caplog):
         assert "Request" in caplog.text
         # Verify bound data was captured (index 1 since index 0 is the error log)
         assert bound_data[1]["user"] == "test_user"
+        assert bound_data[1]["host"] == "example.com"
         assert bound_data[1]["path"] == "/api/v1/chat"
         assert bound_data[1]["model"] == "gpt-4"
         assert bound_data[1]["backend"] == "unknown"
@@ -194,6 +196,7 @@ async def test_inlet_without_user(mocker, caplog):
         assert "Request" in caplog.text
         # Verify bound data was captured (index 1 since index 0 is the error log)
         assert bound_data[1]["user"] == "anonymous"
+        assert bound_data[1]["host"] == "example.com"
         assert bound_data[1]["path"] == "/api/v1/chat"
     finally:
         logger.remove(handler_id)
@@ -257,6 +260,8 @@ async def test_inlet_without_model(mocker, caplog):
         assert "Request" in caplog.text
         # Verify bound data was captured (index 1 since index 0 is the error log)
         assert bound_data[1]["user"] == "test_user"
+        assert bound_data[1]["host"] == "example.com"
+        assert bound_data[1]["path"] == "/api/v1/chat"
         assert bound_data[1]["model"] == "gpt-4"
     finally:
         logger.remove(handler_id)
