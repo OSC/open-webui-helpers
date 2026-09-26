@@ -7,7 +7,6 @@ import pytest
 from fastapi import Request, HTTPException, status
 from ldap3 import Server, Connection, MOCK_SYNC
 
-
 # ==================== LDAP Fallback Tests ====================
 
 
@@ -945,7 +944,7 @@ async def test_outlet_user_missing_info(mocker, caplog):
         accounting.Filter, "get_request_account"
     )
     mock_get_usage = mocker.patch("filters.accounting.get_usage")
-    mock_error_metric = mocker.patch("filters.accounting.error_metric")
+    mock_error_metric = mocker.patch("filters.accounting.errors_total_metric")
 
     # Set up mock request
     scope = {
@@ -995,7 +994,7 @@ async def test_outlet_user_missing_info(mocker, caplog):
     mock_get_usage.assert_not_called()
 
     # Verify error metric was set
-    mock_error_metric.set.assert_called_once_with(1, {"error": "error"})
+    mock_error_metric.add.assert_called_once_with(1, {"error": "error"})
     # Verify error message was logged
     assert "User name and User ID could not be determined" in caplog.text
 
@@ -1008,7 +1007,7 @@ async def test_outlet_get_account_fails(mocker, caplog):
         accounting.Filter, "get_request_account"
     )
     mock_get_usage = mocker.patch("filters.accounting.get_usage")
-    mock_error_metric = mocker.patch("filters.accounting.error_metric")
+    mock_error_metric = mocker.patch("filters.accounting.errors_total_metric")
 
     # Set up mock request
     scope = {
@@ -1062,7 +1061,7 @@ async def test_outlet_get_account_fails(mocker, caplog):
     mock_get_usage.assert_not_called()
 
     # Verify error metric was set
-    mock_error_metric.set.assert_called_once_with(1, {"error": "error"})
+    mock_error_metric.add.assert_called_once_with(1, {"error": "error"})
     # Verify error message was logged
     assert "Account not valid" in caplog.text
 
@@ -1074,7 +1073,7 @@ async def test_outlet_usage_missing(mocker, caplog):
         accounting.Filter, "get_request_account"
     )
     mock_get_usage = mocker.patch("filters.accounting.get_usage")
-    mock_error_metric = mocker.patch("filters.accounting.error_metric")
+    mock_error_metric = mocker.patch("filters.accounting.errors_total_metric")
 
     # Set up mock request
     scope = {
@@ -1125,7 +1124,7 @@ async def test_outlet_usage_missing(mocker, caplog):
     mock_get_usage.assert_called_once_with(body)
 
     # Verify error metric was set
-    mock_error_metric.set.assert_called_once_with(1, {"error": "error"})
+    mock_error_metric.add.assert_called_once_with(1, {"error": "error"})
     # Verify error message was logged
     assert "Unable to get usage from response" in caplog.text
 
@@ -1138,7 +1137,7 @@ async def test_outlet_prompt_tokens_is_none(mocker, caplog):
         accounting.Filter, "get_request_account"
     )
     mock_get_usage = mocker.patch("filters.accounting.get_usage")
-    mock_error_metric = mocker.patch("filters.accounting.error_metric")
+    mock_error_metric = mocker.patch("filters.accounting.errors_total_metric")
 
     # Set up mock request
     scope = {
@@ -1208,7 +1207,7 @@ async def test_outlet_prompt_tokens_is_none(mocker, caplog):
     mock_get_usage.assert_called_once_with(body)
 
     # Verify error metric was set
-    mock_error_metric.set.assert_called_once_with(1, {"error": "error"})
+    mock_error_metric.add.assert_called_once_with(1, {"error": "error"})
     # Verify error message was logged
     assert "Request lacks input token usage in the response" in caplog.text
 
@@ -1221,7 +1220,7 @@ async def test_outlet_completion_tokens_is_none(mocker, caplog):
         accounting.Filter, "get_request_account"
     )
     mock_get_usage = mocker.patch("filters.accounting.get_usage")
-    mock_error_metric = mocker.patch("filters.accounting.error_metric")
+    mock_error_metric = mocker.patch("filters.accounting.errors_total_metric")
 
     # Set up mock request
     scope = {
@@ -1291,7 +1290,7 @@ async def test_outlet_completion_tokens_is_none(mocker, caplog):
     mock_get_usage.assert_called_once_with(body)
 
     # Verify error metric was set
-    mock_error_metric.set.assert_called_once_with(1, {"error": "error"})
+    mock_error_metric.add.assert_called_once_with(1, {"error": "error"})
     # Verify error message was logged
     assert "Request lacks output token usage in the response" in caplog.text
 
@@ -1415,7 +1414,7 @@ async def test_outlet_generic_exception(mocker, caplog):
         accounting.Filter, "get_request_account"
     )
     mock_get_usage = mocker.patch("filters.accounting.get_usage")
-    mock_error_metric = mocker.patch("filters.accounting.error_metric")
+    mock_error_metric = mocker.patch("filters.accounting.errors_total_metric")
 
     # Set up mock request
     scope = {
@@ -1488,4 +1487,4 @@ async def test_outlet_generic_exception(mocker, caplog):
     # Verify error message was logged
     assert "An unhandled exception occurred" in caplog.text
     # Verify error metric was set
-    mock_error_metric.set.assert_called_once_with(1, {"error": "error"})
+    mock_error_metric.add.assert_called_once_with(1, {"error": "error"})

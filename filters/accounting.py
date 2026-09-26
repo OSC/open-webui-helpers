@@ -19,9 +19,9 @@ requests_total_metric = meter.create_counter(
     description="Number of requests used for OSC accounting",
     unit="1",
 )
-error_metric = meter.create_gauge(
-    name="osc.k8.accounting.tokens.error",
-    description="Tracks whether an error recently occurred (1 = error, 0 = ok)",
+errors_total_metric = meter.create_counter(
+    name="osc.k8.accounting.tokens.error.total",
+    description="Tracks number of errors that have occurred",
     unit="1",
 )
 
@@ -319,5 +319,5 @@ class Filter:
             error = "exception"
         finally:
             if error is not None:
-                error_metric.set(1, {"error": "error"})
+                errors_total_metric.add(1, {"error": "error"})
         return body
