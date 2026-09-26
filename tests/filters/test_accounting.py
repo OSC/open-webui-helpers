@@ -1,13 +1,12 @@
 from filters import accounting
-from loguru import logger
 
 import json
 import tempfile
 
 import pytest
 from fastapi import Request, HTTPException, status
-from filelock import Timeout
 from ldap3 import Server, Connection, MOCK_SYNC
+
 
 # ==================== LDAP Fallback Tests ====================
 
@@ -638,390 +637,6 @@ async def test_get_username_no_user(mocker):
     assert result is None
 
 
-async def test_get_metrics_both_metrics_found(httpx_mock):
-    """Test get_metrics when both metrics are found"""
-    # Configure httpx_mock to return a successful response
-    httpx_mock.add_response(
-        url="http://pushgateway.prometheus.svc:9091/api/v1/metrics",
-        json={
-            "data": [
-                {
-                    "labels": {
-                        "job": "k8-token-accounting",
-                        "instance": "gpt-4-PZS0708-test",
-                    },
-                    "osc_k8_accounting_tokens_total": {
-                        "metrics": [
-                            {"value": "50", "labels": {"token_type": "input"}},
-                            {"value": "150", "labels": {"token_type": "output"}},
-                        ]
-                    },
-                    "osc_k8_accounting_token_requests_total": {
-                        "metrics": [{"value": "2"}]
-                    },
-                },
-                {
-                    "labels": {
-                        "job": "k8-token-accounting",
-                        "instance": "gpt-4-PZS0708-username",
-                    },
-                    "osc_k8_accounting_tokens_total": {
-                        "metrics": [
-                            {"value": "25", "labels": {"token_type": "input"}},
-                            {"value": "125", "labels": {"token_type": "output"}},
-                        ]
-                    },
-                    "osc_k8_accounting_token_requests_total": {
-                        "metrics": [{"value": "5"}]
-                    },
-                },
-            ]
-        },
-        status_code=200,
-    )
-
-    # Create filter instance
-    filter_instance = accounting.Filter()
-
-    # Call get_metrics
-    result = await filter_instance.get_metrics(
-        instance="gpt-4-PZS0708-username",
-    )
-
-    # Assert result - now returns (input, output, requests)
-    assert result == (25, 125, 5)
-
-
-async def test_get_metrics_scientific_notation(httpx_mock):
-    """Test get_metrics handles scientific notation values (e.g., '1.025539e+06')"""
-    # Configure httpx_mock to return a successful response with scientific notation
-    httpx_mock.add_response(
-        url="http://pushgateway.prometheus.svc:9091/api/v1/metrics",
-        json={
-            "data": [
-                {
-                    "labels": {
-                        "job": "k8-token-accounting",
-                        "instance": "gpt-4-PZS0708-username",
-                    },
-                    "osc_k8_accounting_tokens_total": {
-                        "metrics": [
-                            {"value": "1.5e+02", "labels": {"token_type": "input"}},
-                            {
-                                "value": "1.025539e+06",
-                                "labels": {"token_type": "output"},
-                            },
-                        ]
-                    },
-                    "osc_k8_accounting_token_requests_total": {
-                        "metrics": [{"value": "1.5e+02"}]
-                    },
-                }
-            ]
-        },
-        status_code=200,
-    )
-
-    # Create filter instance
-    filter_instance = accounting.Filter()
-
-    # Call get_metrics
-    result = await filter_instance.get_metrics(
-        instance="gpt-4-PZS0708-username",
-    )
-
-    # Assert result - scientific notation should be converted correctly
-    # 1.5e+02 = 150 (input)
-    # 1.025539e+06 = 1025539 (output)
-    # 1.5e+02 = 150 (requests)
-    assert result == (150, 1025539, 150)
-
-
-async def test_get_metrics_only_metric_name_found(httpx_mock):
-    """Test get_metrics when only metric_name is found"""
-    # Configure httpx_mock to return a successful response with only one metric
-    httpx_mock.add_response(
-        url="http://pushgateway.prometheus.svc:9091/api/v1/metrics",
-        json={
-            "data": [
-                {
-                    "labels": {
-                        "job": "k8-token-accounting",
-                        "instance": "gpt-4-PZS0708-username",
-                    },
-                    "osc_k8_accounting_tokens_total": {
-                        "metrics": [
-                            {"value": "100", "labels": {"token_type": "input"}},
-                            {"value": "200", "labels": {"token_type": "output"}},
-                        ]
-                    },
-                    # Missing osc_k8_accounting_token_requests_total
-                }
-            ]
-        },
-        status_code=200,
-    )
-
-    # Create filter instance
-    filter_instance = accounting.Filter()
-
-    # Call get_metrics
-    result = await filter_instance.get_metrics(
-        instance="gpt-4-PZS0708-username",
-    )
-
-    # Assert result - requests_value should default to 0
-    assert result == (100, 200, 0)
-
-
-async def test_get_metrics_no_metrics_found(httpx_mock):
-    """Test get_metrics when no metrics are found"""
-    # Configure httpx_mock to return a successful response with no matching metrics
-    httpx_mock.add_response(
-        url="http://pushgateway.prometheus.svc:9091/api/v1/metrics",
-        json={
-            "data": [
-                {
-                    "labels": {"job": "other-job", "instance": "other-instance"},
-                    "some_other_metric": {"metrics": [{"value": "100"}]},
-                }
-            ]
-        },
-        status_code=200,
-    )
-
-    # Create filter instance
-    filter_instance = accounting.Filter()
-
-    # Call get_metrics
-    result = await filter_instance.get_metrics(
-        instance="gpt-4-PZS0708-username",
-    )
-
-    # Assert result - all should default to 0
-    assert result == (0, 0, 0)
-
-
-async def test_get_metrics_job_not_found_in_data(httpx_mock, caplog):
-    """Test get_metrics when metric data doesn't have job field"""
-    # Configure httpx_mock to return a response with data that lacks job field
-    httpx_mock.add_response(
-        url="http://pushgateway.prometheus.svc:9091/api/v1/metrics",
-        json={
-            "data": [
-                {
-                    "labels": {"instance": "gpt-4-PZS0708-username"},
-                    # No job field - should skip this data
-                    "osc_k8_accounting_tokens_total": {
-                        "metrics": [
-                            {"value": "50", "labels": {"token_type": "input"}},
-                            {"value": "100", "labels": {"token_type": "output"}},
-                        ]
-                    },
-                },
-                {
-                    "labels": {
-                        "job": "k8-token-accounting",
-                        "instance": "gpt-4-PZS0708-username",
-                    },
-                    "osc_k8_accounting_tokens_total": {
-                        "metrics": [
-                            {"value": "25", "labels": {"token_type": "input"}},
-                            {"value": "75", "labels": {"token_type": "output"}},
-                        ]
-                    },
-                    "osc_k8_accounting_token_requests_total": {
-                        "metrics": [{"value": "3"}]
-                    },
-                },
-            ]
-        },
-        status_code=200,
-    )
-
-    # Create filter instance
-    filter_instance = accounting.Filter()
-
-    # Call get_metrics
-    with caplog.at_level("DEBUG"):
-        result = await filter_instance.get_metrics(
-            instance="gpt-4-PZS0708-username",
-        )
-
-    # Assert result - should get value from second data entry
-    assert result == (25, 75, 3)
-    # Verify that the first entry was skipped due to missing job
-    assert "job value not found in metric data" in caplog.text
-
-
-async def test_get_metrics_client_not_successful(httpx_mock):
-    """Test get_metrics when the client.get call is not successful"""
-    # Configure httpx_mock to return an unsuccessful response
-    httpx_mock.add_response(
-        url="http://pushgateway.prometheus.svc:9091/api/v1/metrics",
-        status_code=500,
-        text="Internal Server Error",
-    )
-
-    # Create filter instance
-    filter_instance = accounting.Filter()
-
-    # Expect HTTPException to be raised
-    with pytest.raises(
-        HTTPException, match="Unable to query existing accounting metrics"
-    ):
-        await filter_instance.get_metrics(
-            instance="gpt-4-PZS0708-username",
-        )
-
-
-async def test_send_metrics_success(httpx_mock):
-    """Test send_metrics when the POST request is successful"""
-    # Configure httpx_mock to return a successful response
-    httpx_mock.add_response(
-        url="http://pushgateway.prometheus.svc:9091/metrics/job/k8-token-accounting/instance/gpt-4-PZS0708-username",
-        status_code=200,
-        text="OK",
-    )
-
-    # Create filter instance
-    filter_instance = accounting.Filter()
-
-    # Call send_metrics
-    await filter_instance.send_metrics(
-        input_metric_value=50,
-        output_metric_value=100,
-        requests_value=5,
-        user_name="username",
-        account="PZS0708",
-        model="gpt-4",
-        instance="gpt-4-PZS0708-username",
-    )
-
-    # Verify that the POST request was made with the correct data
-    assert len(httpx_mock.get_requests()) == 1
-    request = httpx_mock.get_requests()[0]
-    assert request.method == "POST"
-    assert (
-        request.url
-        == "http://pushgateway.prometheus.svc:9091/metrics/job/k8-token-accounting/instance/gpt-4-PZS0708-username"
-    )
-    assert request.headers["Content-Type"] == "text/plain"
-    # Check that the payload contains the expected metric data (without strict whitespace matching)
-    payload = request.content.decode()
-    assert "# HELP osc_k8_accounting_tokens_total K8 token accounting record" in payload
-    assert "# TYPE osc_k8_accounting_tokens_total counter" in payload
-    assert (
-        'osc_k8_accounting_tokens_total{model="gpt-4",account="PZS0708",user="username",token_type="input"} 50'
-        in payload
-    )
-    assert (
-        'osc_k8_accounting_tokens_total{model="gpt-4",account="PZS0708",user="username",token_type="output"} 100'
-        in payload
-    )
-    assert (
-        "# HELP osc_k8_accounting_token_requests_total K8 requests accounting record"
-        in payload
-    )
-    assert "# TYPE osc_k8_accounting_token_requests_total counter" in payload
-    assert (
-        'osc_k8_accounting_token_requests_total{model="gpt-4",account="PZS0708",user="username"} 5'
-        in payload
-    )
-
-
-async def test_send_metrics_failure(httpx_mock):
-    """Test send_metrics when the POST request fails"""
-    # Configure httpx_mock to return an unsuccessful response
-    httpx_mock.add_response(
-        url="http://pushgateway.prometheus.svc:9091/metrics/job/k8-token-accounting/instance/gpt-4-PZS0708-username",
-        status_code=500,
-        text="Internal Server Error",
-    )
-
-    # Create filter instance
-    filter_instance = accounting.Filter()
-
-    # Expect HTTPException to be raised
-    with pytest.raises(HTTPException, match="Unable to push accounting metric"):
-        await filter_instance.send_metrics(
-            input_metric_value=50,
-            output_metric_value=100,
-            requests_value=5,
-            user_name="username",
-            account="PZS0708",
-            model="gpt-4",
-            instance="gpt-4-PZS0708-username",
-        )
-
-
-async def test_send_error_metric_success(httpx_mock):
-    """Test send_error_metric when the POST request is successful"""
-    # Configure httpx_mock to return a successful response
-    httpx_mock.add_response(
-        url="http://pushgateway.prometheus.svc:9091/metrics/job/token-accounting-error",
-        status_code=200,
-        text="OK",
-    )
-
-    # Create filter instance
-    filter_instance = accounting.Filter()
-
-    # Call send_error_metric
-    await filter_instance.send_error_metric(error="Test error message")
-
-    # Verify that the POST request was made with the correct data
-    assert len(httpx_mock.get_requests()) == 1
-    request = httpx_mock.get_requests()[0]
-    assert request.method == "POST"
-    assert (
-        request.url
-        == "http://pushgateway.prometheus.svc:9091/metrics/job/token-accounting-error"
-    )
-    assert request.headers["Content-Type"] == "text/plain"
-    # Check that the payload contains the expected metric data
-    payload = request.content.decode()
-    assert "# HELP osc_k8_accounting_tokens_error K8 token accounting error" in payload
-    assert "# TYPE osc_k8_accounting_tokens_error gauge" in payload
-    assert 'osc_k8_accounting_tokens_error{error="Test error message"} 1' in payload
-
-
-async def test_send_error_metric_failure(httpx_mock, caplog):
-    """Test send_error_metric when the POST request fails"""
-    # Configure httpx_mock to return an unsuccessful response
-    httpx_mock.add_response(
-        url="http://pushgateway.prometheus.svc:9091/metrics/job/token-accounting-error",
-        status_code=500,
-        text="Internal Server Error",
-    )
-
-    # Create filter instance
-    filter_instance = accounting.Filter()
-
-    # Set up logger handler to capture bound data
-    bound_data = []
-
-    def sink(message):
-        bound_data.append(message.record["extra"])
-
-    handler_id = logger.add(sink)
-
-    try:
-        # Call send_error_metric - should not raise exception but log error
-        with caplog.at_level("ERROR"):
-            await filter_instance.send_error_metric(error="Test error message")
-
-        # Verify the error message was logged for the push failure
-        assert "Unable to push error metric" in caplog.text
-        # Find the bound data entry that has the status field (from the error log)
-        error_bound_data = [d for d in bound_data if "status" in d]
-        assert len(error_bound_data) > 0, "No error log with status found"
-        assert error_bound_data[0]["status"] == 500
-        assert error_bound_data[0]["body"] == "Internal Server Error"
-    finally:
-        logger.remove(handler_id)
-
-
 async def test_inlet_successful_call(mocker):
     """Test successful inlet call with body returned"""
     # Mock the get_username and get_request_account functions
@@ -1217,16 +832,19 @@ async def test_inlet_get_account_fails(mocker):
 
 
 async def test_outlet_successful_call(mocker, caplog):
-    """Test successful outlet call with body returned"""
+    """Test successful outlet call with OpenTelemetry metrics"""
     # Mock external functions
     mock_get_username = mocker.patch.object(accounting.Filter, "get_username")
     mock_get_request_account = mocker.patch.object(
         accounting.Filter, "get_request_account"
     )
     mock_get_usage = mocker.patch("filters.accounting.get_usage")
-    mock_get_metrics = mocker.patch.object(accounting.Filter, "get_metrics")
-    mock_send_metrics = mocker.patch.object(accounting.Filter, "send_metrics")
-    mock_send_error_metric = mocker.patch.object(accounting.Filter, "send_error_metric")
+
+    # Mock OpenTelemetry metrics
+    mock_tokens_total_metric = mocker.patch("filters.accounting.tokens_total_metric")
+    mock_requests_total_metric = mocker.patch(
+        "filters.accounting.requests_total_metric"
+    )
 
     # Set up mock request
     scope = {
@@ -1275,8 +893,6 @@ async def test_outlet_successful_call(mocker, caplog):
         "completion_tokens": 80,
         "total_tokens": 200,
     }
-    mock_get_metrics.return_value = (0, 0, 0)  # (input, output, requests)
-    mock_send_metrics.return_value = None
 
     # Call outlet
     with caplog.at_level("INFO"):
@@ -1295,20 +911,30 @@ async def test_outlet_successful_call(mocker, caplog):
     mock_get_username.assert_called_once_with(__user__=user_data, __request__=request)
     mock_get_request_account.assert_called_once_with(request, "test_user")
     mock_get_usage.assert_called_once_with(body)
-    mock_get_metrics.assert_called_once_with(
-        instance="ai-gpt-4-PZS0708-test_user",
+
+    # Verify OpenTelemetry metrics were added
+    assert mock_tokens_total_metric.add.call_count == 2
+    mock_tokens_total_metric.add.assert_any_call(
+        120,
+        {
+            "token_type": "input",
+            "user": "test_user",
+            "account": "PZS0708",
+            "model": "ai/gpt-4",
+        },
     )
-    mock_send_metrics.assert_called_once_with(
-        input_metric_value=120,  # 0 + 120
-        output_metric_value=80,  # 0 + 80
-        requests_value=1,  # 0 + 1
-        user_name="test_user",
-        account="PZS0708",
-        model="ai/gpt-4",
-        instance="ai-gpt-4-PZS0708-test_user",
+    mock_tokens_total_metric.add.assert_any_call(
+        80,
+        {
+            "token_type": "output",
+            "user": "test_user",
+            "account": "PZS0708",
+            "model": "ai/gpt-4",
+        },
     )
-    # Verify send_error_metric was NOT called on success
-    mock_send_error_metric.assert_not_called()
+    mock_requests_total_metric.add.assert_called_once_with(
+        1, {"user": "test_user", "account": "PZS0708", "model": "ai/gpt-4"}
+    )
 
 
 async def test_outlet_user_missing_info(mocker, caplog):
@@ -1319,7 +945,7 @@ async def test_outlet_user_missing_info(mocker, caplog):
         accounting.Filter, "get_request_account"
     )
     mock_get_usage = mocker.patch("filters.accounting.get_usage")
-    mock_send_error_metric = mocker.patch.object(accounting.Filter, "send_error_metric")
+    mock_error_metric = mocker.patch("filters.accounting.error_metric")
 
     # Set up mock request
     scope = {
@@ -1368,12 +994,10 @@ async def test_outlet_user_missing_info(mocker, caplog):
     # Verify get_usage was not called
     mock_get_usage.assert_not_called()
 
+    # Verify error metric was set
+    mock_error_metric.set.assert_called_once_with(1, {"error": "error"})
     # Verify error message was logged
     assert "User name and User ID could not be determined" in caplog.text
-    # Verify send_error_metric was called with the error
-    mock_send_error_metric.assert_called_once_with(
-        error="User name and User ID could not be determined"
-    )
 
 
 async def test_outlet_get_account_fails(mocker, caplog):
@@ -1384,7 +1008,7 @@ async def test_outlet_get_account_fails(mocker, caplog):
         accounting.Filter, "get_request_account"
     )
     mock_get_usage = mocker.patch("filters.accounting.get_usage")
-    mock_send_error_metric = mocker.patch.object(accounting.Filter, "send_error_metric")
+    mock_error_metric = mocker.patch("filters.accounting.error_metric")
 
     # Set up mock request
     scope = {
@@ -1437,10 +1061,10 @@ async def test_outlet_get_account_fails(mocker, caplog):
     # Verify get_usage was not called
     mock_get_usage.assert_not_called()
 
+    # Verify error metric was set
+    mock_error_metric.set.assert_called_once_with(1, {"error": "error"})
     # Verify error message was logged
     assert "Account not valid" in caplog.text
-    # Verify send_error_metric was called with the error
-    mock_send_error_metric.assert_called_once_with(error="Account not valid")
 
 
 async def test_outlet_usage_missing(mocker, caplog):
@@ -1450,7 +1074,7 @@ async def test_outlet_usage_missing(mocker, caplog):
         accounting.Filter, "get_request_account"
     )
     mock_get_usage = mocker.patch("filters.accounting.get_usage")
-    mock_send_error_metric = mocker.patch.object(accounting.Filter, "send_error_metric")
+    mock_error_metric = mocker.patch("filters.accounting.error_metric")
 
     # Set up mock request
     scope = {
@@ -1500,12 +1124,10 @@ async def test_outlet_usage_missing(mocker, caplog):
     # Verify get_usage was called
     mock_get_usage.assert_called_once_with(body)
 
+    # Verify error metric was set
+    mock_error_metric.set.assert_called_once_with(1, {"error": "error"})
     # Verify error message was logged
     assert "Unable to get usage from response" in caplog.text
-    # Verify send_error_metric was called with the error
-    mock_send_error_metric.assert_called_once_with(
-        error="Unable to get usage from response"
-    )
 
 
 async def test_outlet_prompt_tokens_is_none(mocker, caplog):
@@ -1516,7 +1138,7 @@ async def test_outlet_prompt_tokens_is_none(mocker, caplog):
         accounting.Filter, "get_request_account"
     )
     mock_get_usage = mocker.patch("filters.accounting.get_usage")
-    mock_send_error_metric = mocker.patch.object(accounting.Filter, "send_error_metric")
+    mock_error_metric = mocker.patch("filters.accounting.error_metric")
 
     # Set up mock request
     scope = {
@@ -1585,12 +1207,10 @@ async def test_outlet_prompt_tokens_is_none(mocker, caplog):
     # Verify get_usage was called
     mock_get_usage.assert_called_once_with(body)
 
+    # Verify error metric was set
+    mock_error_metric.set.assert_called_once_with(1, {"error": "error"})
     # Verify error message was logged
     assert "Request lacks input token usage in the response" in caplog.text
-    # Verify send_error_metric was called with the error (includes the usage dict)
-    mock_send_error_metric.assert_called_once_with(
-        error="Request lacks input token usage in the response: {'completion_tokens': 120}"
-    )
 
 
 async def test_outlet_completion_tokens_is_none(mocker, caplog):
@@ -1601,7 +1221,7 @@ async def test_outlet_completion_tokens_is_none(mocker, caplog):
         accounting.Filter, "get_request_account"
     )
     mock_get_usage = mocker.patch("filters.accounting.get_usage")
-    mock_send_error_metric = mocker.patch.object(accounting.Filter, "send_error_metric")
+    mock_error_metric = mocker.patch("filters.accounting.error_metric")
 
     # Set up mock request
     scope = {
@@ -1670,12 +1290,10 @@ async def test_outlet_completion_tokens_is_none(mocker, caplog):
     # Verify get_usage was called
     mock_get_usage.assert_called_once_with(body)
 
+    # Verify error metric was set
+    mock_error_metric.set.assert_called_once_with(1, {"error": "error"})
     # Verify error message was logged
     assert "Request lacks output token usage in the response" in caplog.text
-    # Verify send_error_metric was called with the error (includes the usage dict)
-    mock_send_error_metric.assert_called_once_with(
-        error="Request lacks output token usage in the response: {'prompt_tokens': 120}"
-    )
 
 
 async def test_outlet_completion_tokens_is_none_embed(mocker, caplog):
@@ -1686,9 +1304,12 @@ async def test_outlet_completion_tokens_is_none_embed(mocker, caplog):
         accounting.Filter, "get_request_account"
     )
     mock_get_usage = mocker.patch("filters.accounting.get_usage")
-    mock_get_metrics = mocker.patch.object(accounting.Filter, "get_metrics")
-    mock_send_metrics = mocker.patch.object(accounting.Filter, "send_metrics")
-    mock_send_error_metric = mocker.patch.object(accounting.Filter, "send_error_metric")
+
+    # Mock OpenTelemetry metrics
+    mock_tokens_total_metric = mocker.patch("filters.accounting.tokens_total_metric")
+    mock_requests_total_metric = mocker.patch(
+        "filters.accounting.requests_total_metric"
+    )
 
     # Set up mock request
     scope = {
@@ -1737,8 +1358,6 @@ async def test_outlet_completion_tokens_is_none_embed(mocker, caplog):
         "total_tokens": 120,
         # No completion tokens
     }
-    mock_get_metrics.return_value = (0, 0, 0)  # (input, output, requests)
-    mock_send_metrics.return_value = None
 
     # Call outlet
     with caplog.at_level("INFO"):
@@ -1757,308 +1376,35 @@ async def test_outlet_completion_tokens_is_none_embed(mocker, caplog):
     mock_get_username.assert_called_once_with(__user__=user_data, __request__=request)
     mock_get_request_account.assert_called_once_with(request, "test_user")
     mock_get_usage.assert_called_once_with(body)
-    mock_get_metrics.assert_called_once_with(
-        instance="Qwen-Qwen3-Embedding-0.6B-PZS0708-test_user",
+
+    # Verify OpenTelemetry metrics were added (with output_tokens=0 for embed models)
+    assert mock_tokens_total_metric.add.call_count == 2
+    mock_tokens_total_metric.add.assert_any_call(
+        120,
+        {
+            "token_type": "input",
+            "user": "test_user",
+            "account": "PZS0708",
+            "model": "Qwen/Qwen3-Embedding-0.6B",
+        },
     )
-    mock_send_metrics.assert_called_once_with(
-        input_metric_value=120,  # 0 + 120
-        output_metric_value=0,
-        requests_value=1,  # 0 + 1
-        user_name="test_user",
-        account="PZS0708",
-        model="Qwen/Qwen3-Embedding-0.6B",
-        instance="Qwen-Qwen3-Embedding-0.6B-PZS0708-test_user",
+    mock_tokens_total_metric.add.assert_any_call(
+        0,
+        {
+            "token_type": "output",
+            "user": "test_user",
+            "account": "PZS0708",
+            "model": "Qwen/Qwen3-Embedding-0.6B",
+        },
     )
-    # Verify send_error_metric was NOT called on success
-    mock_send_error_metric.assert_not_called()
-
-
-async def test_outlet_get_metrics_fails(mocker, caplog):
-    """Test outlet when get_metrics fails"""
-    # Mock external functions
-    mock_get_username = mocker.patch.object(accounting.Filter, "get_username")
-    mock_get_request_account = mocker.patch.object(
-        accounting.Filter, "get_request_account"
+    mock_requests_total_metric.add.assert_called_once_with(
+        1,
+        {
+            "user": "test_user",
+            "account": "PZS0708",
+            "model": "Qwen/Qwen3-Embedding-0.6B",
+        },
     )
-    mock_get_usage = mocker.patch("filters.accounting.get_usage")
-    mock_get_metrics = mocker.patch.object(accounting.Filter, "get_metrics")
-    mock_send_metrics = mocker.patch.object(accounting.Filter, "send_metrics")
-    mock_send_error_metric = mocker.patch.object(accounting.Filter, "send_error_metric")
-
-    # Set up mock request
-    scope = {
-        "type": "http",
-        "method": "POST",
-        "path": "/api/v1/chat",
-        "headers": [(b"host", b"PZS0708.chat.example.com")],
-    }
-    request = Request(scope=scope)
-
-    # Set up user data
-    user_data = {"name": "test_user", "id": "test_user_id"}
-
-    # Set up metadata
-    metadata = {"chat_id": "chat_123"}
-
-    # Set up model data
-    model_data = {"id": "gpt-4"}
-
-    # Create filter instance
-    filter_instance = accounting.Filter()
-
-    # Test body with usage data
-    body = {
-        "id": "msg_123",
-        "model": "gpt-4",
-        "messages": [
-            {"role": "user", "content": "Hello"},
-            {
-                "role": "assistant",
-                "content": "Hi there!",
-                "usage": {
-                    "prompt_tokens": 120,
-                    "completion_tokens": 80,
-                    "total_tokens": 200,
-                },
-            },
-        ],
-    }
-
-    # Mock external functions
-    mock_get_username.return_value = "test_user"
-    mock_get_request_account.return_value = "PZS0708"
-    mock_get_usage.return_value = {
-        "prompt_tokens": 120,
-        "completion_tokens": 80,
-        "total_tokens": 200,
-    }
-    # Mock get_metrics to raise an exception
-    mock_get_metrics.side_effect = HTTPException(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        detail="Database connection failed",
-    )
-
-    # Call outlet - should NOT raise HTTPException (caught and logged)
-    with caplog.at_level("ERROR"):
-        result = await filter_instance.outlet(
-            body=body,
-            __user__=user_data,
-            __metadata__=metadata,
-            __request__=request,
-            __model__=model_data,
-        )
-
-    # Verify the result is the same as the input body (returned normally)
-    assert result == body
-
-    # Verify get_username was called
-    mock_get_username.assert_called_once_with(__user__=user_data, __request__=request)
-    # Verify get_request_account was called
-    mock_get_request_account.assert_called_once_with(request, "test_user")
-    # Verify get_usage was called
-    mock_get_usage.assert_called_once_with(body)
-    # Verify get_metrics was called
-    mock_get_metrics.assert_called_once_with(
-        instance="gpt-4-PZS0708-test_user",
-    )
-    # Verify send_metrics was not called
-    mock_send_metrics.assert_not_called()
-    # Verify send_error_metric was called with the error
-    mock_send_error_metric.assert_called_once_with(error="Database connection failed")
-
-    # Verify error message was logged
-    assert "Database connection failed" in caplog.text
-
-
-async def test_outlet_send_metrics_fails(mocker, caplog):
-    """Test outlet when send_metrics fails"""
-    # Mock external functions
-    mock_get_username = mocker.patch.object(accounting.Filter, "get_username")
-    mock_get_request_account = mocker.patch.object(
-        accounting.Filter, "get_request_account"
-    )
-    mock_get_usage = mocker.patch("filters.accounting.get_usage")
-    mock_get_metrics = mocker.patch.object(accounting.Filter, "get_metrics")
-    mock_send_metrics = mocker.patch.object(accounting.Filter, "send_metrics")
-    mock_send_error_metric = mocker.patch.object(accounting.Filter, "send_error_metric")
-
-    # Set up mock request
-    scope = {
-        "type": "http",
-        "method": "POST",
-        "path": "/api/v1/chat",
-        "headers": [(b"host", b"PZS0708.chat.example.com")],
-    }
-    request = Request(scope=scope)
-
-    # Set up user data
-    user_data = {"name": "test_user", "id": "test_user_id"}
-
-    # Set up metadata
-    metadata = {"chat_id": "chat_123"}
-
-    # Set up model data
-    model_data = {"id": "gpt-4"}
-
-    # Create filter instance
-    filter_instance = accounting.Filter()
-
-    # Test body with usage data
-    body = {
-        "id": "msg_123",
-        "model": "gpt-4",
-        "messages": [
-            {"role": "user", "content": "Hello"},
-            {
-                "role": "assistant",
-                "content": "Hi there!",
-                "usage": {
-                    "prompt_tokens": 120,
-                    "completion_tokens": 80,
-                    "total_tokens": 200,
-                },
-            },
-        ],
-    }
-
-    # Mock external functions
-    mock_get_username.return_value = "test_user"
-    mock_get_request_account.return_value = "PZS0708"
-    mock_get_usage.return_value = {
-        "prompt_tokens": 120,
-        "completion_tokens": 80,
-        "total_tokens": 200,
-    }
-    mock_get_metrics.return_value = (50, 100, 5)  # (input, output, requests)
-    # Mock send_metrics to raise an exception
-    mock_send_metrics.side_effect = HTTPException(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        detail="Pushgateway connection failed",
-    )
-
-    # Call outlet - should not raise exception but log error
-    with caplog.at_level("ERROR"):
-        result = await filter_instance.outlet(
-            body=body,
-            __user__=user_data,
-            __metadata__=metadata,
-            __request__=request,
-            __model__=model_data,
-        )
-
-    # Verify the result is the same as the input body
-    assert result == body
-
-    # Verify all external functions were called
-    mock_get_username.assert_called_once_with(__user__=user_data, __request__=request)
-    mock_get_request_account.assert_called_once_with(request, "test_user")
-    mock_get_usage.assert_called_once_with(body)
-    mock_get_metrics.assert_called_once_with(
-        instance="gpt-4-PZS0708-test_user",
-    )
-    mock_send_metrics.assert_called_once_with(
-        input_metric_value=170,  # 50 + 120
-        output_metric_value=180,  # 100 + 80
-        requests_value=6,  # 5 + 1
-        user_name="test_user",
-        account="PZS0708",
-        model="gpt-4",
-        instance="gpt-4-PZS0708-test_user",
-    )
-
-    # Verify send_error_metric was called with the error
-    mock_send_error_metric.assert_called_once_with(
-        error="Pushgateway connection failed"
-    )
-
-    # Verify error message was logged
-    assert "Pushgateway connection failed" in caplog.text
-
-
-async def test_outlet_timeout_waiting_for_lock(mocker, caplog):
-    """Test outlet when a Timeout exception occurs waiting for lock
-
-    This test uses mock_lock to raise filelock.Timeout when entering the
-    context manager, covering the Timeout exception handler at lines 300-304.
-    We stub get_metrics to avoid network calls inside the lock context.
-    """
-    # Mock external functions
-    mock_get_username = mocker.patch.object(accounting.Filter, "get_username")
-    mock_get_request_account = mocker.patch.object(
-        accounting.Filter, "get_request_account"
-    )
-    mock_get_usage = mocker.patch("filters.accounting.get_usage")
-    mock_send_error_metric = mocker.patch.object(accounting.Filter, "send_error_metric")
-
-    # Set up mock request
-    scope = {
-        "type": "http",
-        "method": "POST",
-        "path": "/api/v1/chat",
-        "headers": [(b"host", b"PZS0708.chat.example.com")],
-    }
-    request = Request(scope=scope)
-
-    # Set up user data
-    user_data = {"name": "test_user", "id": "test_user_id"}
-
-    # Set up metadata
-    metadata = {"chat_id": "chat_123"}
-
-    # Set up model data
-    model_data = {"id": "gpt-4"}
-
-    # Create filter instance
-    filter_instance = accounting.Filter()
-
-    # Test body with usage data
-    body = {
-        "id": "msg_123",
-        "model": "gpt-4",
-        "messages": [
-            {"role": "user", "content": "Hello"},
-            {
-                "role": "assistant",
-                "content": "Hi there!",
-                "usage": {
-                    "prompt_tokens": 120,
-                    "completion_tokens": 80,
-                    "total_tokens": 200,
-                },
-            },
-        ],
-    }
-
-    # Mock external functions
-    mock_get_username.return_value = "test_user"
-    mock_get_request_account.return_value = "PZS0708"
-    mock_get_usage.return_value = {
-        "prompt_tokens": 120,
-        "completion_tokens": 80,
-        "total_tokens": 200,
-    }
-
-    mocker.patch("filelock.AsyncFileLock.acquire", side_effect=Timeout("my_file.lock"))
-
-    # Call outlet - should catch Timeout and log error
-    with caplog.at_level("ERROR"):
-        result = await filter_instance.outlet(
-            body=body,
-            __user__=user_data,
-            __metadata__=metadata,
-            __request__=request,
-            __model__=model_data,
-        )
-
-    # Verify the result is the same as the input body (returned normally)
-    assert result == body
-
-    # Verify get_username was called
-    mock_get_username.assert_called_once_with(__user__=user_data, __request__=request)
-    # Verify error message was logged for lock timeout
-    assert "Timeout waiting for lock" in caplog.text
-    # Verify send_error_metric was called with the error
-    mock_send_error_metric.assert_called_once_with(error="lock timeout")
 
 
 async def test_outlet_generic_exception(mocker, caplog):
@@ -2069,7 +1415,7 @@ async def test_outlet_generic_exception(mocker, caplog):
         accounting.Filter, "get_request_account"
     )
     mock_get_usage = mocker.patch("filters.accounting.get_usage")
-    mock_send_error_metric = mocker.patch.object(accounting.Filter, "send_error_metric")
+    mock_error_metric = mocker.patch("filters.accounting.error_metric")
 
     # Set up mock request
     scope = {
@@ -2120,13 +1466,9 @@ async def test_outlet_generic_exception(mocker, caplog):
     }
     # Mock get_request_account to return a valid account
     mock_get_request_account.return_value = "PZS0708"
-    # Mock get_metrics to raise a generic exception
-    mock_get_metrics = mocker.patch.object(accounting.Filter, "get_metrics")
-    mock_get_metrics.side_effect = ValueError("Unexpected error")
-    # Mock the lock to avoid file system issues
-    mock_lock = mocker.patch("filelock.AsyncFileLock")
-    mock_lock_instance = mock_lock.return_value
-    mock_lock_instance.__aenter__.return_value = None
+    # Mock tokens_total_metric to raise a generic exception
+    mock_tokens_total_metric = mocker.patch("filters.accounting.tokens_total_metric")
+    mock_tokens_total_metric.add.side_effect = ValueError("Unexpected error")
 
     # Call outlet - should catch exception and log error
     with caplog.at_level("ERROR"):
@@ -2145,5 +1487,5 @@ async def test_outlet_generic_exception(mocker, caplog):
     mock_get_username.assert_called_once_with(__user__=user_data, __request__=request)
     # Verify error message was logged
     assert "An unhandled exception occurred" in caplog.text
-    # Verify send_error_metric was called with the error
-    mock_send_error_metric.assert_called_once_with(error="exception")
+    # Verify error metric was set
+    mock_error_metric.set.assert_called_once_with(1, {"error": "error"})

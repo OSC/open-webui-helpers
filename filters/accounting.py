@@ -1,14 +1,29 @@
-# import base64
-import os
 import time
 from pydantic import BaseModel, Field
 from fastapi import Request, HTTPException, status
-import httpx
 from loguru import logger
+from opentelemetry import metrics
 from typing import Any
-from filelock import AsyncFileLock, Timeout
 from ldap3 import Server, Connection, ALL, ServerPool, FIRST
 from ldap3.utils.conv import escape_filter_chars
+
+meter = metrics.get_meter("openwebui.custom.accounting")
+
+tokens_total_metric = meter.create_counter(
+    name="osc.k8.accounting.tokens.total",
+    description="Number of tokens used for OSC accounting",
+    unit="1",
+)
+requests_total_metric = meter.create_counter(
+    name="osc.k8.accounting.token.requests.total",
+    description="Number of requests used for OSC accounting",
+    unit="1",
+)
+error_metric = meter.create_gauge(
+    name="osc.k8.accounting.tokens.error",
+    description="Tracks whether an error recently occurred (1 = error, 0 = ok)",
+    unit="1",
+)
 
 
 # Logic from https://github.com/Skyzi000/open-webui-extensions/blob/main/functions/filter/token_usage_display.py
@@ -46,14 +61,6 @@ async def get_usage(body: dict[str, Any]) -> dict[str, Any] | None:
 class Filter:
     class Valves(BaseModel):
         log_level: str = Field(default="INFO", description="Logging level")
-        pushgateway_url: str = Field(
-            default="http://pushgateway.prometheus.svc:9091",
-            description="Push gateway URL",
-        )
-        lock_dir: str = Field(
-            default="/tmp",
-            description="Directory for lock files",
-        )
         # LDAP configuration for fallback verification
         ldap_urls: str = Field(
             default="",
@@ -74,11 +81,6 @@ class Filter:
         self.shared_users = ["oscchat"]
         self.username_header = "x-osc-user"
         self.error_tag = "accounting-error"
-        self.metric_job = "k8-token-accounting"
-        self.metric_name = "osc_k8_accounting_tokens_total"
-        self.requests_metric_name = "osc_k8_accounting_token_requests_total"
-        self.error_metric_job = "token-accounting-error"
-        self.error_metric_name = "osc_k8_accounting_tokens_error"
 
     async def get_username(self, __user__: dict, __request__: Request) -> str:
         username = (__user__ or {}).get("name")
@@ -181,135 +183,6 @@ class Filter:
             )
         return account
 
-    async def get_metrics(self, instance: str) -> tuple[float, float]:
-        headers = {
-            "Content-Type": "application/json",
-        }
-        metrics_query_url = f"{self.valves.pushgateway_url}/api/v1/metrics"
-        metrics = {}
-        async with httpx.AsyncClient() as client:
-            r = await client.get(metrics_query_url, headers=headers)
-            if not r.is_success:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Unable to query existing accounting metrics. status={r.status_code} body={r.text}",
-                )
-            metrics = r.json()
-
-        input_metric_value = 0
-        output_metric_value = 0
-        requests_value = 0
-        # Logic to query counter for increment left but unused
-        if len(metrics.get("data", [])) > 0:
-            for data in metrics["data"]:
-                job = data.get("labels", {}).get("job", None)
-                if job is None:
-                    self.logger.debug(
-                        f"job value not found in metric data, skip.  data={data}"
-                    )
-                    continue
-                metric_instance = data.get("labels", {}).get("instance", None)
-                if job != self.metric_job or metric_instance != instance:
-                    self.logger.debug(
-                        f"Skip metric job {job} instance {metric_instance}"
-                    )
-                    continue
-                metric_data = data.get(self.metric_name, {})
-                if metric_data:
-                    metrics = metric_data.get("metrics", [])
-                    for metric in metrics:
-                        token_type = metric.get("labels", {}).get("token_type", None)
-                        if token_type == "input":
-                            input_metric_value = float(metric.get("value", 0))
-                        if token_type == "output":
-                            output_metric_value = float(metric.get("value", 0))
-                    self.logger.debug(
-                        f"Existing metric values. input={input_metric_value} output={output_metric_value} data={data}"
-                    )
-                requests_data = data.get(self.requests_metric_name, {})
-                if requests_data:
-                    requests = requests_data.get("metrics", [])[0]
-                    requests_value = float(requests.get("value", 0))
-                    self.logger.debug(
-                        f"Existing requests value. value={requests_value} data={data}"
-                    )
-                if input_metric_value and output_metric_value and requests_value:
-                    break
-        return (
-            float(input_metric_value),
-            float(output_metric_value),
-            float(requests_value),
-        )
-
-    async def send_metrics(
-        self,
-        input_metric_value: float,
-        output_metric_value: float,
-        requests_value: float,
-        user_name: str,
-        account: str,
-        model: str,
-        instance: str,
-    ) -> None:
-        # model_bytes = model.encode("utf-8")
-        # model_base64 = base64.urlsafe_b64encode(model_bytes)
-        # metric_model = model_base64.decode("utf-8")
-        metric_data = f"""
-# HELP {self.metric_name} K8 token accounting record
-# TYPE {self.metric_name} counter
-{self.metric_name}{{model="{model}",account="{account}",user="{user_name}",token_type="input"}} {input_metric_value}
-{self.metric_name}{{model="{model}",account="{account}",user="{user_name}",token_type="output"}} {output_metric_value}
-# HELP {self.requests_metric_name} K8 requests accounting record
-# TYPE {self.requests_metric_name} counter
-{self.requests_metric_name}{{model="{model}",account="{account}",user="{user_name}"}} {requests_value}
-"""
-        path = f"job/{self.metric_job}/instance/{instance}"
-        metrics_url = f"{self.valves.pushgateway_url}/metrics/{path}"
-        metrics_header = {"Content-Type": "text/plain"}
-        self.logger.debug(
-            f"Send metric values {input_metric_value}/{output_metric_value} and requests value {requests_value} to {metrics_url}"
-        )
-        async with httpx.AsyncClient() as client:
-            r = await client.post(
-                metrics_url, content=metric_data, headers=metrics_header
-            )
-            if not r.is_success:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Unable to push accounting metric. status={r.status_code} body={r.text}",
-                )
-            self.logger.debug(f"Metric sent: status={r.status_code} body={r.text}")
-
-    async def send_error_metric(
-        self,
-        error: str,
-    ) -> None:
-        metric_data = f"""
-# HELP {self.error_metric_name} K8 token accounting error
-# TYPE {self.error_metric_name} gauge
-{self.error_metric_name}{{error="{error}"}} 1
-"""
-        path = f"job/{self.error_metric_job}"
-        metrics_url = f"{self.valves.pushgateway_url}/metrics/{path}"
-        metrics_header = {"Content-Type": "text/plain"}
-        self.logger.debug(f'Send error metric error="{error}" to {metrics_url}')
-        async with httpx.AsyncClient() as client:
-            r = await client.post(
-                metrics_url, content=metric_data, headers=metrics_header
-            )
-            if not r.is_success:
-                self.logger.bind(
-                    error_tag=self.error_tag,
-                    status=r.status_code,
-                    body=r.text,
-                ).error(
-                    "Unable to push error metric",
-                )
-                return
-            self.logger.debug(
-                f"Error metric sent: status={r.status_code} body={r.text}"
-            )
-
     async def inlet(
         self,
         body: dict,
@@ -366,7 +239,6 @@ class Filter:
             account = await self.get_request_account(__request__, user_name)
             self.logger.debug(f"Found account {account}")
 
-            model_escaped = model.replace("/", "-")
             usage = await get_usage(body)
             self.logger.debug(f"Usage: chat-id={chat_id} model={model} usage={usage}")
             if usage is None:
@@ -392,53 +264,38 @@ class Filter:
                     detail=f"Request lacks output token usage in the response: {usage}",
                 )
 
-            instance = f"{model_escaped}-{account}-{user_name}"
-            lock_file_path = os.path.join(self.valves.lock_dir, f"{instance}.lock")
-            lock = AsyncFileLock(lock_file_path)
-            async with lock:
-                start_time = time.perf_counter()
-                input_metric_value, output_metric_value, requests_value = (
-                    await self.get_metrics(instance=instance)
-                )
-                input_metric_total = float(input_metric_value) + float(input_tokens)
-                output_metric_total = float(output_metric_value) + float(output_tokens)
-                requests_total = float(requests_value) + 1
-                self.logger.bind(
-                    user=user_name,
-                    account=account,
-                    model=model,
-                    input_tokens=input_tokens,
-                    output_tokens=output_tokens,
-                    existing_input_value=input_metric_value,
-                    existing_output_value=output_metric_value,
-                    input_total_value=input_metric_total,
-                    output_total_value=output_metric_total,
-                    existing_requests=requests_value,
-                    total_requests=requests_total,
-                ).info("Process token usage.")
-                await self.send_metrics(
-                    input_metric_value=input_metric_total,
-                    output_metric_value=output_metric_total,
-                    requests_value=requests_total,
-                    user_name=user_name,
-                    account=account,
-                    model=model,
-                    instance=instance,
-                )
-                end_time = time.perf_counter()
-                elapsed_time = end_time - start_time
-                self.logger.debug(f"Metrics took {elapsed_time}")
-        except Timeout:
+            start_time = time.perf_counter()
+            tokens_total_metric.add(
+                int(input_tokens),
+                {
+                    "token_type": "input",
+                    "user": user_name,
+                    "account": account,
+                    "model": model,
+                },
+            )
+            tokens_total_metric.add(
+                int(output_tokens),
+                {
+                    "token_type": "output",
+                    "user": user_name,
+                    "account": account,
+                    "model": model,
+                },
+            )
+            requests_total_metric.add(
+                1, {"user": user_name, "account": account, "model": model}
+            )
             self.logger.bind(
-                error_tag=self.error_tag,
-                id=chat_id,
                 user=user_name,
                 account=account,
                 model=model,
-            ).error(
-                "Timeout waiting for lock",
-            )
-            error = "lock timeout"
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+            ).info("Process token usage.")
+            end_time = time.perf_counter()
+            elapsed_time = end_time - start_time
+            self.logger.debug(f"Metrics took {elapsed_time}")
         except HTTPException as e:
             self.logger.bind(
                 error_tag=self.error_tag,
@@ -462,5 +319,5 @@ class Filter:
             error = "exception"
         finally:
             if error is not None:
-                await self.send_error_metric(error=error)
+                error_metric.set(1, {"error": "error"})
         return body
