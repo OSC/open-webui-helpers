@@ -318,8 +318,6 @@ class Filter:
             )
             error = "exception"
         finally:
-            error_value = 0
             if error is not None:
-                error_value = 1
-            error_metric.set(error_value, {"error": "error"})
+                error_metric.set(1, {"error": "error"})
         return body
