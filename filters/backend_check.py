@@ -1,3 +1,4 @@
+import os
 from pydantic import BaseModel, Field
 from fastapi import Request, HTTPException, status
 from open_webui.models.config import Config
@@ -27,7 +28,10 @@ class Filter:
         wait_users: list = Field(
             default=["oscchat"], description="List of users to enforce waiting."
         )
-        k8_namespace: str = Field(default="dynamo", description="Kubernetes namespace")
+        k8_namespace: str = Field(
+            default=os.getenv("K8S_NAMESPACE", "dynamo"),
+            description="Kubernetes namespace",
+        )
 
     def __init__(self):
         self.valves = self.Valves()
