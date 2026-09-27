@@ -20,7 +20,7 @@ requests_total_metric = meter.create_counter(
     unit="1",
 )
 errors_total_metric = meter.create_counter(
-    name="osc.k8.accounting.tokens.error.total",
+    name="osc.k8.accounting.token.errors.total",
     description="Tracks number of errors that have occurred",
     unit="1",
 )
@@ -223,9 +223,17 @@ class Filter:
         __model__: dict = {},
     ) -> dict:
         error = None
+        # Initialize variables before try block to ensure they're defined in exception handlers
+        chat_id = "unknown"
+        user_name = "unknown"
+        account = "N/A"
+        model = "unknown"
         try:
-            account = "N/A"
-            chat_id = __metadata__.get("chat_id") or body.get("id", "unknown")
+            chat_id = (
+                __metadata__.get("chat_id")
+                if __metadata__
+                else body.get("id", "unknown")
+            )
             model = __model__.get("id") if __model__ else body.get("model", "unknown")
             user_name = await self.get_username(
                 __user__=__user__, __request__=__request__
@@ -267,7 +275,7 @@ class Filter:
             start_time = time.perf_counter()
             tokens_total_metric.add(
                 int(input_tokens),
-                {
+                attributes={
                     "token_type": "input",
                     "user": user_name,
                     "account": account,
@@ -276,7 +284,7 @@ class Filter:
             )
             tokens_total_metric.add(
                 int(output_tokens),
-                {
+                attributes={
                     "token_type": "output",
                     "user": user_name,
                     "account": account,
@@ -284,7 +292,7 @@ class Filter:
                 },
             )
             requests_total_metric.add(
-                1, {"user": user_name, "account": account, "model": model}
+                1, attributes={"user": user_name, "account": account, "model": model}
             )
             self.logger.bind(
                 user=user_name,

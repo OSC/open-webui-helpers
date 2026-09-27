@@ -29,7 +29,7 @@ class Filter:
             default=["oscchat"], description="List of users to enforce waiting."
         )
         k8_namespace: str = Field(
-            default=os.getenv("K8S_NAMESPACE", "dynamo"),
+            default=os.getenv("K8S_NAMESPACE") or "dynamo",
             description="Kubernetes namespace",
         )
 
@@ -104,7 +104,11 @@ class Filter:
                 f"Models detected on backend, skipping scale up: backend={backend_url}"
             )
             pending_request_metric.set(
-                0, {"model": metric_model, "namespace": self.valves.k8_namespace}
+                0,
+                attributes={
+                    "model": metric_model,
+                    "namespace": self.valves.k8_namespace,
+                },
             )
             return body
 
@@ -112,7 +116,7 @@ class Filter:
             "Scale up metric",
         )
         pending_request_metric.set(
-            1, {"model": metric_model, "namespace": self.valves.k8_namespace}
+            1, attributes={"model": metric_model, "namespace": self.valves.k8_namespace}
         )
         wait = __request__.headers.get(self.valves.wait_header, "false")
         should_wait = False
@@ -145,7 +149,11 @@ class Filter:
                     f"Models available, breaking from wait loop: backend={backend_url} models={wait_models}"
                 )
                 pending_request_metric.set(
-                    0, {"model": metric_model, "namespace": self.valves.k8_namespace}
+                    0,
+                    attributes={
+                        "model": metric_model,
+                        "namespace": self.valves.k8_namespace,
+                    },
                 )
                 return body
             # Non-blocking pause allows other tasks to run in the background

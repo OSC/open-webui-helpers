@@ -915,7 +915,7 @@ async def test_outlet_successful_call(mocker, caplog):
     assert mock_tokens_total_metric.add.call_count == 2
     mock_tokens_total_metric.add.assert_any_call(
         120,
-        {
+        attributes={
             "token_type": "input",
             "user": "test_user",
             "account": "PZS0708",
@@ -924,7 +924,7 @@ async def test_outlet_successful_call(mocker, caplog):
     )
     mock_tokens_total_metric.add.assert_any_call(
         80,
-        {
+        attributes={
             "token_type": "output",
             "user": "test_user",
             "account": "PZS0708",
@@ -932,7 +932,7 @@ async def test_outlet_successful_call(mocker, caplog):
         },
     )
     mock_requests_total_metric.add.assert_called_once_with(
-        1, {"user": "test_user", "account": "PZS0708", "model": "ai/gpt-4"}
+        1, attributes={"user": "test_user", "account": "PZS0708", "model": "ai/gpt-4"}
     )
 
 
@@ -1380,7 +1380,7 @@ async def test_outlet_completion_tokens_is_none_embed(mocker, caplog):
     assert mock_tokens_total_metric.add.call_count == 2
     mock_tokens_total_metric.add.assert_any_call(
         120,
-        {
+        attributes={
             "token_type": "input",
             "user": "test_user",
             "account": "PZS0708",
@@ -1389,7 +1389,7 @@ async def test_outlet_completion_tokens_is_none_embed(mocker, caplog):
     )
     mock_tokens_total_metric.add.assert_any_call(
         0,
-        {
+        attributes={
             "token_type": "output",
             "user": "test_user",
             "account": "PZS0708",
@@ -1398,7 +1398,7 @@ async def test_outlet_completion_tokens_is_none_embed(mocker, caplog):
     )
     mock_requests_total_metric.add.assert_called_once_with(
         1,
-        {
+        attributes={
             "user": "test_user",
             "account": "PZS0708",
             "model": "Qwen/Qwen3-Embedding-0.6B",
