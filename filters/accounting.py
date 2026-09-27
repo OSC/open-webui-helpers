@@ -144,10 +144,16 @@ class Filter:
             self.logger.error(f"LDAP group lookup failed for user {username}: {e}")
             return []
 
-    async def get_request_account(self, request: Request, user_name: str) -> str:
+    async def get_request_account(
+        self, request: Request, user_name: str, __metadata__: dict = None
+    ) -> str:
         request_host = request.url.hostname
         host_parts = request_host.split(".")
         account = None
+        if __metadata__ is not None:
+            account = __metadata__.get("account", None)
+        if account is not None:
+            return account
 
         # Get user's LDAP groups
         ldap_groups = await self.get_ldap_groups(user_name)
@@ -200,6 +206,9 @@ class Filter:
         self.logger.debug(f"Found user {user_name}")
         account = await self.get_request_account(__request__, user_name)
         self.logger.debug(f"Found account {account}")
+        if __metadata__ is None:
+            __metadata__ = {}
+        __metadata__["account"] = account
 
         # OpenAI-compatible streaming usage requires stream_options.include_usage=true.
         # Open WebUI may expose this as a per-model setting; we force it here to avoid
@@ -244,7 +253,9 @@ class Filter:
                     detail="User name and User ID could not be determined",
                 )
             self.logger.debug(f"Found user {user_name}")
-            account = await self.get_request_account(__request__, user_name)
+            account = await self.get_request_account(
+                __request__, user_name, __metadata__
+            )
             self.logger.debug(f"Found account {account}")
 
             usage = await get_usage(body)

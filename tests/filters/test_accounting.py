@@ -230,6 +230,70 @@ async def test_get_request_account_valid(mocker):
     assert result == "PZS0708"
 
 
+async def test_get_request_account_from_metadata(mocker):
+    """Test account returned from metadata when present"""
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/api/v1/chat",
+        "headers": [(b"host", b"PZS0708.chat.example.com")],
+    }
+    request = Request(scope=scope)
+
+    # Mock get_ldap_groups - should NOT be called since account is in metadata
+    mock_get_ldap_groups = mocker.patch.object(
+        accounting.Filter, "get_ldap_groups", return_value=["PZS0645"]
+    )
+
+    filter_instance = accounting.Filter()
+    metadata = {"account": "PZS0708"}
+    result = await filter_instance.get_request_account(request, "testuser", metadata)
+
+    assert result == "PZS0708"
+    # Verify LDAP was not called since account was already in metadata
+    mock_get_ldap_groups.assert_not_called()
+
+
+async def test_get_request_account_from_metadata_none(mocker):
+    """Test account from host when metadata exists but has no account key"""
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/api/v1/chat",
+        "headers": [(b"host", b"PZS0708.chat.example.com")],
+    }
+    request = Request(scope=scope)
+
+    # Mock get_ldap_groups to return the account
+    mocker.patch.object(accounting.Filter, "get_ldap_groups", return_value=["PZS0708"])
+
+    filter_instance = accounting.Filter()
+    metadata = {"chat_id": "chat_123"}  # No account key
+    result = await filter_instance.get_request_account(request, "testuser", metadata)
+
+    assert result == "PZS0708"
+
+
+async def test_get_request_account_from_metadata_empty(mocker):
+    """Test account from host when metadata is empty dict"""
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/api/v1/chat",
+        "headers": [(b"host", b"PZS0708.chat.example.com")],
+    }
+    request = Request(scope=scope)
+
+    # Mock get_ldap_groups to return the account
+    mocker.patch.object(accounting.Filter, "get_ldap_groups", return_value=["PZS0708"])
+
+    filter_instance = accounting.Filter()
+    metadata = {}
+    result = await filter_instance.get_request_account(request, "testuser", metadata)
+
+    assert result == "PZS0708"
+
+
 async def test_get_request_account_invalid_host_format(mocker):
     """Test invalid host format (account doesn't start with P)"""
     scope = {
@@ -637,7 +701,7 @@ async def test_get_username_no_user(mocker):
 
 
 async def test_inlet_successful_call(mocker):
-    """Test successful inlet call with body returned"""
+    """Test successful inlet call with body returned and metadata updated"""
     # Mock the get_username and get_request_account functions
     mock_get_username = mocker.patch.object(accounting.Filter, "get_username")
     mock_get_request_account = mocker.patch.object(
@@ -670,9 +734,14 @@ async def test_inlet_successful_call(mocker):
     # Mock get_request_account to return a valid account
     mock_get_request_account.return_value = "PZS0708"
 
-    # Call inlet
+    # Call inlet with metadata
+    metadata = {"chat_id": "chat_123"}
     result = await filter_instance.inlet(
-        body=body, __user__=user_data, __request__=request, __model__=model_data
+        body=body,
+        __user__=user_data,
+        __request__=request,
+        __model__=model_data,
+        __metadata__=metadata,
     )
 
     # Verify the result is the same as the input body
@@ -681,6 +750,8 @@ async def test_inlet_successful_call(mocker):
     mock_get_username.assert_called_once_with(__user__=user_data, __request__=request)
     # Verify get_request_account was called
     mock_get_request_account.assert_called_once_with(request, "test_user")
+    # Verify metadata was updated with account
+    assert metadata["account"] == "PZS0708"
 
 
 async def test_inlet_stream_request_modified(mocker):
@@ -908,7 +979,7 @@ async def test_outlet_successful_call(mocker, caplog):
 
     # Verify all external functions were called
     mock_get_username.assert_called_once_with(__user__=user_data, __request__=request)
-    mock_get_request_account.assert_called_once_with(request, "test_user")
+    mock_get_request_account.assert_called_once_with(request, "test_user", metadata)
     mock_get_usage.assert_called_once_with(body)
 
     # Verify OpenTelemetry metrics were added
@@ -1056,7 +1127,7 @@ async def test_outlet_get_account_fails(mocker, caplog):
     # Verify get_username was called
     mock_get_username.assert_called_once_with(__user__=user_data, __request__=request)
     # Verify get_request_account was called
-    mock_get_request_account.assert_called_once_with(request, "test_user")
+    mock_get_request_account.assert_called_once_with(request, "test_user", metadata)
     # Verify get_usage was not called
     mock_get_usage.assert_not_called()
 
@@ -1119,7 +1190,7 @@ async def test_outlet_usage_missing(mocker, caplog):
     assert result == body
 
     # Verify get_request_account was called
-    mock_get_request_account.assert_called_once_with(request, "test_user")
+    mock_get_request_account.assert_called_once_with(request, "test_user", metadata)
     # Verify get_usage was called
     mock_get_usage.assert_called_once_with(body)
 
@@ -1202,7 +1273,7 @@ async def test_outlet_prompt_tokens_is_none(mocker, caplog):
     # Verify get_username was called
     mock_get_username.assert_called_once_with(__user__=user_data, __request__=request)
     # Verify get_request_account was called
-    mock_get_request_account.assert_called_once_with(request, "test_user")
+    mock_get_request_account.assert_called_once_with(request, "test_user", metadata)
     # Verify get_usage was called
     mock_get_usage.assert_called_once_with(body)
 
@@ -1285,7 +1356,7 @@ async def test_outlet_completion_tokens_is_none(mocker, caplog):
     # Verify get_username was called
     mock_get_username.assert_called_once_with(__user__=user_data, __request__=request)
     # Verify get_request_account was called
-    mock_get_request_account.assert_called_once_with(request, "test_user")
+    mock_get_request_account.assert_called_once_with(request, "test_user", metadata)
     # Verify get_usage was called
     mock_get_usage.assert_called_once_with(body)
 
@@ -1373,7 +1444,7 @@ async def test_outlet_completion_tokens_is_none_embed(mocker, caplog):
 
     # Verify all external functions were called
     mock_get_username.assert_called_once_with(__user__=user_data, __request__=request)
-    mock_get_request_account.assert_called_once_with(request, "test_user")
+    mock_get_request_account.assert_called_once_with(request, "test_user", metadata)
     mock_get_usage.assert_called_once_with(body)
 
     # Verify OpenTelemetry metrics were added (with output_tokens=0 for embed models)
