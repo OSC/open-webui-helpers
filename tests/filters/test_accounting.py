@@ -748,8 +748,8 @@ async def test_inlet_successful_call(mocker):
     assert result == body
     # Verify get_username was called
     mock_get_username.assert_called_once_with(__user__=user_data, __request__=request)
-    # Verify get_request_account was called
-    mock_get_request_account.assert_called_once_with(request, "test_user")
+    # Verify get_request_account was called with __metadata__
+    mock_get_request_account.assert_called_once_with(request, "test_user", {})
     # Verify metadata was updated with account
     assert metadata["account"] == "PZS0708"
 
@@ -791,10 +791,15 @@ async def test_inlet_stream_request_modified(mocker):
     mock_get_username.return_value = "test_user"
     # Mock get_request_account to return a valid account
     mock_get_request_account.return_value = "PZS0708"
+    metadata = {}
 
     # Call inlet
     result = await filter_instance.inlet(
-        body=body, __user__=user_data, __request__=request, __model__=model_data
+        body=body,
+        __user__=user_data,
+        __metadata__=metadata,
+        __request__=request,
+        __model__=model_data,
     )
 
     # Verify that stream_options was added to the body
@@ -803,8 +808,10 @@ async def test_inlet_stream_request_modified(mocker):
     assert result["stream_options"]["include_usage"] is True
     # Verify get_username was called
     mock_get_username.assert_called_once_with(__user__=user_data, __request__=request)
-    # Verify get_request_account was called
-    mock_get_request_account.assert_called_once_with(request, "test_user")
+    # Verify get_request_account was called with __metadata__
+    mock_get_request_account.assert_called_once_with(request, "test_user", {})
+    # Verify metadata was updated with account
+    assert metadata["account"] == "PZS0708"
 
 
 async def test_inlet_user_missing_info(mocker):
@@ -898,7 +905,7 @@ async def test_inlet_get_account_fails(mocker):
     # Verify get_username was called
     mock_get_username.assert_called_once_with(__user__=user_data, __request__=request)
     # Verify get_request_account was called
-    mock_get_request_account.assert_called_once_with(request, "test_user")
+    mock_get_request_account.assert_called_once_with(request, "test_user", {})
 
 
 async def test_outlet_successful_call(mocker, caplog):
@@ -1064,8 +1071,10 @@ async def test_outlet_user_missing_info(mocker, caplog):
     # Verify get_usage was not called
     mock_get_usage.assert_not_called()
 
-    # Verify error metric was set
-    mock_error_metric.add.assert_called_once_with(1, {"error": "error"})
+    # Verify error metric was set with actual error detail
+    mock_error_metric.add.assert_called_once_with(
+        1, {"error": "User name and User ID could not be determined"}
+    )
     # Verify error message was logged
     assert "User name and User ID could not be determined" in caplog.text
 
@@ -1131,8 +1140,8 @@ async def test_outlet_get_account_fails(mocker, caplog):
     # Verify get_usage was not called
     mock_get_usage.assert_not_called()
 
-    # Verify error metric was set
-    mock_error_metric.add.assert_called_once_with(1, {"error": "error"})
+    # Verify error metric was set with actual error detail
+    mock_error_metric.add.assert_called_once_with(1, {"error": "Account not valid"})
     # Verify error message was logged
     assert "Account not valid" in caplog.text
 
@@ -1194,8 +1203,10 @@ async def test_outlet_usage_missing(mocker, caplog):
     # Verify get_usage was called
     mock_get_usage.assert_called_once_with(body)
 
-    # Verify error metric was set
-    mock_error_metric.add.assert_called_once_with(1, {"error": "error"})
+    # Verify error metric was set with actual error detail
+    mock_error_metric.add.assert_called_once_with(
+        1, {"error": "Unable to get usage from response"}
+    )
     # Verify error message was logged
     assert "Unable to get usage from response" in caplog.text
 
@@ -1277,8 +1288,13 @@ async def test_outlet_prompt_tokens_is_none(mocker, caplog):
     # Verify get_usage was called
     mock_get_usage.assert_called_once_with(body)
 
-    # Verify error metric was set
-    mock_error_metric.add.assert_called_once_with(1, {"error": "error"})
+    # Verify error metric was set with actual error detail (includes usage dict)
+    mock_error_metric.add.assert_called_once_with(
+        1,
+        {
+            "error": "Request lacks input token usage in the response: {'completion_tokens': 120}"
+        },
+    )
     # Verify error message was logged
     assert "Request lacks input token usage in the response" in caplog.text
 
@@ -1360,8 +1376,13 @@ async def test_outlet_completion_tokens_is_none(mocker, caplog):
     # Verify get_usage was called
     mock_get_usage.assert_called_once_with(body)
 
-    # Verify error metric was set
-    mock_error_metric.add.assert_called_once_with(1, {"error": "error"})
+    # Verify error metric was set with actual error detail (includes usage dict)
+    mock_error_metric.add.assert_called_once_with(
+        1,
+        {
+            "error": "Request lacks output token usage in the response: {'prompt_tokens': 120}"
+        },
+    )
     # Verify error message was logged
     assert "Request lacks output token usage in the response" in caplog.text
 
@@ -1557,5 +1578,5 @@ async def test_outlet_generic_exception(mocker, caplog):
     mock_get_username.assert_called_once_with(__user__=user_data, __request__=request)
     # Verify error message was logged
     assert "An unhandled exception occurred" in caplog.text
-    # Verify error metric was set
-    mock_error_metric.add.assert_called_once_with(1, {"error": "error"})
+    # Verify error metric was set with actual error detail
+    mock_error_metric.add.assert_called_once_with(1, {"error": "exception"})

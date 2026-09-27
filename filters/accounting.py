@@ -193,7 +193,7 @@ class Filter:
         self,
         body: dict,
         __user__: dict = None,
-        __metadata__: dict = None,
+        __metadata__: dict = {},
         __request__: Request = None,
         __model__: dict = {},
     ) -> dict:
@@ -204,10 +204,9 @@ class Filter:
                 detail="User name and User ID could not be determined",
             )
         self.logger.debug(f"Found user {user_name}")
-        account = await self.get_request_account(__request__, user_name)
+        # inlet should only set account metadata and always verifies LDAP access so force __metadata__={}
+        account = await self.get_request_account(__request__, user_name, {})
         self.logger.debug(f"Found account {account}")
-        if __metadata__ is None:
-            __metadata__ = {}
         __metadata__["account"] = account
 
         # OpenAI-compatible streaming usage requires stream_options.include_usage=true.
@@ -338,5 +337,5 @@ class Filter:
             error = "exception"
         finally:
             if error is not None:
-                errors_total_metric.add(1, {"error": "error"})
+                errors_total_metric.add(1, {"error": error if error else "unknown"})
         return body
