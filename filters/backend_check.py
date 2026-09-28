@@ -112,6 +112,13 @@ class Filter:
             )
             return body
 
+        self.logger.bind(user=user_name, model=metric_model, backend=backend_url).info(
+            "Scale up metric",
+        )
+        pending_request_metric.set(
+            1, attributes={"model": metric_model, "namespace": self.valves.k8_namespace}
+        )
+
         wait = __request__.headers.get(self.valves.wait_header, "false")
         should_wait = False
         if wait.lower() == "true":
@@ -128,13 +135,6 @@ class Filter:
             )
             raise unavailable
 
-        self.logger.bind(user=user_name, model=metric_model, backend=backend_url).info(
-            "Scale up metric",
-        )
-        pending_request_metric.set(
-            1, attributes={"model": metric_model, "namespace": self.valves.k8_namespace}
-        )
-
         delay = 10
         retries = self.valves.wait_duration // delay
         for attempt in range(1, retries + 1):
@@ -143,13 +143,6 @@ class Filter:
             async with httpx.AsyncClient() as client:
                 r = await client.get(f"{backend_url}/models", headers=headers)
                 if not r.is_success:
-                    pending_request_metric.set(
-                        0,
-                        attributes={
-                            "model": metric_model,
-                            "namespace": self.valves.k8_namespace,
-                        },
-                    )
                     raise unavailable
                 wait_models = r.json()
             if len(wait_models.get("data", [])) > 0:
@@ -169,7 +162,4 @@ class Filter:
             await asyncio.sleep(delay)
 
         self.logger.bind(backend=backend_url).error("Model wait timed out")
-        pending_request_metric.set(
-            0, attributes={"model": metric_model, "namespace": self.valves.k8_namespace}
-        )
         raise unavailable

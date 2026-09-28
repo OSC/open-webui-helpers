@@ -334,9 +334,9 @@ async def test_inlet_model_not_found_wait_disabled_raises_exception(httpx_mock, 
     assert requests[0].method == "GET"
     assert "/models" in str(requests[0].url)
 
-    # Verify pending_request_metric.set was NOT called since should_wait was False
-    # (metric is only set after we determine we should wait)
-    mock_metric.set.assert_not_called()
+    mock_metric.set.assert_any_call(
+        1, attributes={"model": "gpt-4", "namespace": "dynamo"}
+    )
 
 
 async def test_inlet_model_not_found_wait_enabled_then_not_found_raises_exception(
@@ -418,12 +418,9 @@ async def test_inlet_model_not_found_wait_enabled_then_not_found_raises_exceptio
     assert len(requests) == 4  # 1 initial GET + 3 wait loop GETs
 
     # Verify pending_request_metric.set was called with value 1 (pending) and then 0 on timeout
-    assert mock_metric.set.call_count == 2
+    assert mock_metric.set.call_count == 1
     mock_metric.set.assert_any_call(
         1, attributes={"model": "gpt-4", "namespace": "dynamo"}
-    )
-    mock_metric.set.assert_any_call(
-        0, attributes={"model": "gpt-4", "namespace": "dynamo"}
     )
 
     # Verify model wait timeout was logged
@@ -572,12 +569,9 @@ async def test_inlet_wait_loop_models_query_fails(httpx_mock, caplog, mocker):
     assert len(requests) == 3  # 1 initial GET + 2 wait loop GETs
 
     # Verify pending_request_metric.set was called with value 1 (pending) and then 0 on exception
-    assert mock_metric.set.call_count == 2
+    assert mock_metric.set.call_count == 1
     mock_metric.set.assert_any_call(
         1, attributes={"model": "gpt-4", "namespace": "dynamo"}
-    )
-    mock_metric.set.assert_any_call(
-        0, attributes={"model": "gpt-4", "namespace": "dynamo"}
     )
 
     # Verify the last request was to /models and failed
