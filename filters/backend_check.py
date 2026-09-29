@@ -11,7 +11,7 @@ meter = metrics.get_meter("openwebui.custom.backend_check")
 pending_request_metric = meter.create_gauge(
     name="dynamo.pending.request",
     description="Indicates if requests are pending (1 = pending, 0 = ok). External autoscaler (HPA/KEDA) watches this metric to trigger model scale-up.",
-    unit="1",
+    unit="",
 )
 
 
