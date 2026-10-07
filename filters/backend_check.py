@@ -1,9 +1,18 @@
+import os
 from pydantic import BaseModel, Field
 from fastapi import Request, HTTPException, status
 from open_webui.models.config import Config
 import asyncio
 import httpx
 from loguru import logger
+from opentelemetry import metrics
+
+meter = metrics.get_meter("openwebui.custom.backend_check")
+pending_request_metric = meter.create_gauge(
+    name="dynamo.pending.request",
+    description="Indicates if requests are pending (1 = pending, 0 = ok). External autoscaler (HPA/KEDA) watches this metric to trigger model scale-up.",
+    unit="",
+)
 
 
 class Filter:
@@ -19,10 +28,9 @@ class Filter:
         wait_users: list = Field(
             default=["oscchat"], description="List of users to enforce waiting."
         )
-        k8_namespace: str = Field(default="dynamo", description="Kubernetes namespace")
-        pushgateway_url: str = Field(
-            default="http://pushgateway.prometheus.svc:9091",
-            description="Push gateway URL",
+        k8_namespace: str = Field(
+            default=os.getenv("K8S_NAMESPACE") or "dynamo",
+            description="Kubernetes namespace",
         )
 
     def __init__(self):
@@ -38,6 +46,9 @@ class Filter:
         __model__: dict = {},
     ) -> dict:
         idx = __model__.get("urlIdx", None)
+        model = __model__.get("id") if __model__ else body.get("model", "unknown")
+        metric_model = model.replace("/", "-")
+        user_name = __user__.get("name", "unknown") if __user__ else "anonymous"
         values = await Config.get_many(
             "openai.api_base_urls", "openai.api_keys", "openai.api_configs"
         )
@@ -92,28 +103,22 @@ class Filter:
             self.logger.debug(
                 f"Models detected on backend, skipping scale up: backend={backend_url}"
             )
+            pending_request_metric.set(
+                0,
+                attributes={
+                    "model": metric_model,
+                    "namespace": self.valves.k8_namespace,
+                },
+            )
             return body
 
-        model = __model__.get("id") if __model__ else body.get("model", "unknown")
-        metric_model = model.replace("/", "-")
-        user_name = __user__.get("name", "unknown") if __user__ else "anonymous"
-        metric_data = f"""
-# HELP dynamo_pending_request Indicates a pending Dynamo request
-# TYPE dynamo_pending_request gauge
-dynamo_pending_request{{model="{metric_model}",namespace="{self.valves.k8_namespace}"}} 1
-"""
-        metrics_url = f"{self.valves.pushgateway_url}/metrics/job/{self.valves.k8_namespace}-{metric_model}"
-        metrics_header = {"Content-Type": "text/plain"}
         self.logger.bind(user=user_name, model=metric_model, backend=backend_url).info(
-            "Scale up request",
+            "Scale up metric",
         )
-        async with httpx.AsyncClient() as client:
-            r = await client.post(
-                metrics_url, content=metric_data, headers=metrics_header
-            )
-            self.logger.debug(
-                f"Scale up request completed (metric): status={r.status_code} body={r.text}"
-            )
+        pending_request_metric.set(
+            1, attributes={"model": metric_model, "namespace": self.valves.k8_namespace}
+        )
+
         wait = __request__.headers.get(self.valves.wait_header, "false")
         should_wait = False
         if wait.lower() == "true":
@@ -144,6 +149,13 @@ dynamo_pending_request{{model="{metric_model}",namespace="{self.valves.k8_namesp
                 self.logger.debug(
                     f"Models available, breaking from wait loop: backend={backend_url} models={wait_models}"
                 )
+                pending_request_metric.set(
+                    0,
+                    attributes={
+                        "model": metric_model,
+                        "namespace": self.valves.k8_namespace,
+                    },
+                )
                 return body
             # Non-blocking pause allows other tasks to run in the background
             self.logger.debug(f"Waiting {delay} seconds before retrying...")
@@ -151,34 +163,3 @@ dynamo_pending_request{{model="{metric_model}",namespace="{self.valves.k8_namesp
 
         self.logger.bind(backend=backend_url).error("Model wait timed out")
         raise unavailable
-
-        # End logic, rest left in case becomes necessary in the future
-        # Send request to trigger scale up
-        self.logger.info(
-            f"Scale up request: user={user_name} model={model} backend={backend_url}"
-        )
-        payload = {
-            "model": model,
-            "messages": [{"role": "user", "content": "Scaling up, what is your name?"}],
-        }
-        # Run the query twice to ensure the metric gets triggered
-        async with httpx.AsyncClient() as client:
-            r = await client.post(
-                f"{backend_url}/chat/completions", json=payload, headers=headers
-            )
-            self.logger.info(
-                f"Scale up request completed (first): status={r.status_code} body={r.text}"
-            )
-            await asyncio.sleep(2)
-            r = await client.post(
-                f"{backend_url}/chat/completions", json=payload, headers=headers
-            )
-            self.logger.info(
-                f"Scale up request completed (second): status={r.status_code} body={r.text}"
-            )
-
-        # base_url = __request__.base_url
-        # path_name = __request__.url.path
-        # print(f"base_url={base_url} path_name={path_name}")
-
-        # return body
