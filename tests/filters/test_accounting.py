@@ -814,7 +814,7 @@ async def test_inlet_stream_request_modified(mocker):
     assert metadata["account"] == "PZS0708"
 
 
-async def test_inlet_user_missing_info(mocker):
+async def test_inlet_user_missing_info(mocker, caplog):
     """Test inlet when user name or user id is missing"""
     # Mock the get_username and get_request_account functions
     mock_get_username = mocker.patch.object(accounting.Filter, "get_username")
@@ -846,8 +846,8 @@ async def test_inlet_user_missing_info(mocker):
     # Mock get_username to return None (simulating missing username)
     mock_get_username.return_value = None
 
-    # Call inlet - should raise HTTPException
-    with pytest.raises(
+    # Call inlet - should raise HTTPException and log the error
+    with caplog.at_level("ERROR"), pytest.raises(
         HTTPException, match="User name and User ID could not be determined"
     ):
         await filter_instance.inlet(
@@ -858,9 +858,11 @@ async def test_inlet_user_missing_info(mocker):
     mock_get_username.assert_called_once_with(__user__=user_data, __request__=request)
     # Verify get_request_account was not called
     mock_get_request_account.assert_not_called()
+    # Verify error was logged
+    assert "User name and User ID could not be determined" in caplog.text
 
 
-async def test_inlet_get_account_fails(mocker):
+async def test_inlet_get_account_fails(mocker, caplog):
     """Test inlet when getting account fails"""
     # Mock the get_username and get_request_account functions
     mock_get_username = mocker.patch.object(accounting.Filter, "get_username")
@@ -896,8 +898,10 @@ async def test_inlet_get_account_fails(mocker):
         status_code=status.HTTP_400_BAD_REQUEST, detail="Account not valid"
     )
 
-    # Call inlet - should raise HTTPException from get_request_account
-    with pytest.raises(HTTPException, match="Account not valid"):
+    # Call inlet - should raise HTTPException from get_request_account and log the error
+    with caplog.at_level("ERROR"), pytest.raises(
+        HTTPException, match="Account not valid"
+    ):
         await filter_instance.inlet(
             body=body, __user__=user_data, __request__=request, __model__=model_data
         )
@@ -906,6 +910,57 @@ async def test_inlet_get_account_fails(mocker):
     mock_get_username.assert_called_once_with(__user__=user_data, __request__=request)
     # Verify get_request_account was called
     mock_get_request_account.assert_called_once_with(request, "test_user", {})
+    # Verify error was logged
+    assert "Account not valid" in caplog.text
+
+
+async def test_inlet_generic_exception(mocker, caplog):
+    """Test inlet when an unhandled exception occurs"""
+    # Mock the get_username and get_request_account functions
+    mock_get_username = mocker.patch.object(accounting.Filter, "get_username")
+    mock_get_request_account = mocker.patch.object(
+        accounting.Filter, "get_request_account"
+    )
+
+    # Set up mock request
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/api/v1/chat",
+        "headers": [(b"host", b"PZS0708.chat.example.com")],
+    }
+    request = Request(scope=scope)
+
+    # Set up user data
+    user_data = {"name": "test_user", "id": "test_user_id"}
+
+    # Set up model data
+    model_data = {"id": "gpt-4"}
+
+    # Create filter instance
+    filter_instance = accounting.Filter()
+
+    # Test body
+    body = {"model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}]}
+
+    # Mock get_username to return a valid username
+    mock_get_username.return_value = "test_user"
+    # Mock get_request_account to raise a generic exception
+    mock_get_request_account.side_effect = ValueError("Unexpected error")
+
+    # Call inlet - should raise the exception and log the error
+    with caplog.at_level("ERROR"), pytest.raises(ValueError, match="Unexpected error"):
+        await filter_instance.inlet(
+            body=body, __user__=user_data, __request__=request, __model__=model_data
+        )
+
+    # Verify get_username was called
+    mock_get_username.assert_called_once_with(__user__=user_data, __request__=request)
+    # Verify get_request_account was called
+    mock_get_request_account.assert_called_once_with(request, "test_user", {})
+    # Verify error was logged
+    assert "An unhandled exception occurred" in caplog.text
+    assert "Unexpected error" in caplog.text
 
 
 async def test_outlet_successful_call(mocker, caplog):
