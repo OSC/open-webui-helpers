@@ -427,7 +427,7 @@ async def test_inlet_model_not_found_wait_enabled_then_not_found_raises_exceptio
     assert "Model wait timed out" in caplog.text
 
 
-async def test_inlet_query_models_fails_raises_exception(httpx_mock):
+async def test_inlet_query_models_fails_raises_exception(httpx_mock, caplog):
     """Test inlet when query of models fails and raises exception"""
     # Set up mock request
     scope = {
@@ -467,8 +467,8 @@ async def test_inlet_query_models_fails_raises_exception(httpx_mock):
         text="Internal Server Error",
     )
 
-    # Call inlet - should raise HTTPException
-    with pytest.raises(
+    # Call inlet - should raise HTTPException and log the error
+    with caplog.at_level("ERROR"), pytest.raises(
         HTTPException, match="The AI backend is temporarily unavailable"
     ):
         await filter_instance.inlet(
@@ -484,6 +484,10 @@ async def test_inlet_query_models_fails_raises_exception(httpx_mock):
     assert len(requests) == 1
     assert requests[0].method == "GET"
     assert "/models" in str(requests[0].url)
+
+    # Verify error was logged
+    assert "Backend models query failed" in caplog.text
+    assert "status=500" in caplog.text
 
 
 async def test_inlet_wait_loop_models_query_fails(httpx_mock, caplog, mocker):
@@ -551,18 +555,17 @@ async def test_inlet_wait_loop_models_query_fails(httpx_mock, caplog, mocker):
     # Mock the metric to capture set() calls
     mock_metric = mocker.patch.object(backend_check, "pending_request_metric")
 
-    # Call inlet - should raise HTTPException after wait loop failure
-    with caplog.at_level("INFO"):
-        with pytest.raises(
-            HTTPException, match="The AI backend is temporarily unavailable"
-        ):
-            await filter_instance.inlet(
-                body=body,
-                __user__=user_data,
-                __metadata__=metadata,
-                __request__=request,
-                __model__=model_data,
-            )
+    # Call inlet - should raise HTTPException after wait loop failure and log the error
+    with caplog.at_level("ERROR"), pytest.raises(
+        HTTPException, match="The AI backend is temporarily unavailable"
+    ):
+        await filter_instance.inlet(
+            body=body,
+            __user__=user_data,
+            __metadata__=metadata,
+            __request__=request,
+            __model__=model_data,
+        )
 
     # Verify all requests were made
     requests = httpx_mock.get_requests()
@@ -577,6 +580,10 @@ async def test_inlet_wait_loop_models_query_fails(httpx_mock, caplog, mocker):
     # Verify the last request was to /models and failed
     assert requests[-1].method == "GET"
     assert "/models" in str(requests[-1].url)
+
+    # Verify error was logged
+    assert "Backend models query failed during wait" in caplog.text
+    assert "status=500" in caplog.text
 
 
 async def test_inlet_without_url_idx(mocker, caplog):
@@ -621,18 +628,19 @@ async def test_inlet_without_url_idx(mocker, caplog):
     handler_id = logger.add(sink)
 
     try:
-        # Call inlet - should raise HTTPException with "Unable to determine backend URL"
-        with caplog.at_level("DEBUG"):
-            with pytest.raises(HTTPException, match="Unable to determine backend URL"):
-                await filter_instance.inlet(
-                    body=body,
-                    __user__=None,
-                    __metadata__=metadata,
-                    __request__=request,
-                    __model__=model_data,
-                )
+        # Call inlet - should raise HTTPException with "Unable to determine backend URL" and log the error
+        with caplog.at_level("ERROR"), pytest.raises(
+            HTTPException, match="Unable to determine backend URL"
+        ):
+            await filter_instance.inlet(
+                body=body,
+                __user__=None,
+                __metadata__=metadata,
+                __request__=request,
+                __model__=model_data,
+            )
 
-        # Verify the warning was logged
+        # Verify the error was logged
         assert "Unable to determine model index" in caplog.text
         assert bound_data[0]["model_metadata"] == model_data
     finally:

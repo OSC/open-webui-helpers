@@ -197,30 +197,53 @@ class Filter:
         __request__: Request = None,
         __model__: dict = {},
     ) -> dict:
-        user_name = await self.get_username(__user__=__user__, __request__=__request__)
-        if not user_name:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="User name and User ID could not be determined",
+        # Initialize variables before try block to ensure they're defined in exception handlers
+        user_name = "unknown"
+        account = "N/A"
+        try:
+            user_name = await self.get_username(
+                __user__=__user__, __request__=__request__
             )
-        self.logger.debug(f"Found user {user_name}")
-        # inlet should only set account metadata and always verifies LDAP access so force __metadata__={}
-        account = await self.get_request_account(__request__, user_name, {})
-        self.logger.debug(f"Found account {account}")
-        __metadata__["account"] = account
+            if not user_name:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="User name and User ID could not be determined",
+                )
+            self.logger.debug(f"Found user {user_name}")
+            # inlet should only set account metadata and always verifies LDAP access so force __metadata__={}
+            account = await self.get_request_account(__request__, user_name, {})
+            self.logger.debug(f"Found account {account}")
+            __metadata__["account"] = account
 
-        # OpenAI-compatible streaming usage requires stream_options.include_usage=true.
-        # Open WebUI may expose this as a per-model setting; we force it here to avoid
-        # toggling it model-by-model.
-        if body.get("stream") is True:
-            stream_options = body.get("stream_options")
-            if not isinstance(stream_options, dict):
-                stream_options = {}
-            if stream_options.get("include_usage") is not True:
-                stream_options = {**stream_options, "include_usage": True}
-                body = {**body, "stream_options": stream_options}
+            # OpenAI-compatible streaming usage requires stream_options.include_usage=true.
+            # Open WebUI may expose this as a per-model setting; we force it here to avoid
+            # toggling it model-by-model.
+            if body.get("stream") is True:
+                stream_options = body.get("stream_options")
+                if not isinstance(stream_options, dict):
+                    stream_options = {}
+                if stream_options.get("include_usage") is not True:
+                    stream_options = {**stream_options, "include_usage": True}
+                    body = {**body, "stream_options": stream_options}
 
-        return body
+            return body
+        except HTTPException as e:
+            self.logger.bind(
+                error_tag=self.error_tag,
+                user=user_name,
+                account=account,
+            ).error(e.detail)
+            raise
+        except Exception as e:
+            self.logger.bind(
+                error_tag=self.error_tag,
+                user=user_name,
+                account=account,
+            ).error(e)
+            self.logger.bind(error_tag=self.error_tag).exception(
+                f"An unhandled exception occurred {e}",
+            )
+            raise
 
     async def outlet(
         self,
