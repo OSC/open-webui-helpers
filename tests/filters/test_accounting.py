@@ -678,7 +678,9 @@ async def test_get_username_shared_user_no_header(mocker, caplog):
     request = Request(scope=scope)
 
     with caplog.at_level("ERROR"):
-        result = await filter_instance.get_username(__user__=user_data, __request__=request)
+        result = await filter_instance.get_username(
+            __user__=user_data, __request__=request
+        )
 
     assert result is None
     assert "Header x-osc-user not set for shared user" in caplog.text
