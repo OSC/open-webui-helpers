@@ -85,7 +85,14 @@ class Filter:
     async def get_username(self, __user__: dict, __request__: Request) -> str:
         username = (__user__ or {}).get("name")
         if username in self.shared_users:
-            username = __request__.headers.get(self.username_header, None)
+            header_username = __request__.headers.get(self.username_header, None)
+            if header_username is None:
+                self.logger.bind(
+                    error_tag=self.error_tag,
+                    user=username,
+                ).error(f"Header {self.username_header} not set for shared user")
+                return None
+            username = header_username
         return username
 
     async def get_ldap_groups(self, username: str) -> list[str]:

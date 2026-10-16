@@ -664,7 +664,7 @@ async def test_get_username_shared_user_with_header(mocker):
     assert result == "actual_user"
 
 
-async def test_get_username_shared_user_no_header(mocker):
+async def test_get_username_shared_user_no_header(mocker, caplog):
     """Test that None is returned when user is in shared users but header is missing"""
     filter_instance = accounting.Filter()
 
@@ -677,9 +677,13 @@ async def test_get_username_shared_user_no_header(mocker):
     }
     request = Request(scope=scope)
 
-    result = await filter_instance.get_username(__user__=user_data, __request__=request)
+    with caplog.at_level("ERROR"):
+        result = await filter_instance.get_username(__user__=user_data, __request__=request)
 
     assert result is None
+    assert "Header x-osc-user not set for shared user" in caplog.text
+    record = caplog.records[0]
+    assert record.extra["user"] == "oscchat"
 
 
 async def test_get_username_no_user(mocker):
