@@ -1,4 +1,5 @@
 OPEN_WEBUI_VERSION := 0.11.4
+OPEN_WEBUI_IMAGE := ghcr.io/open-webui/open-webui:$(OPEN_WEBUI_VERSION)-slim
 SED := $(shell command -v gsed 2>/dev/null || echo sed)
 # 1. Define the potential path to the virtual environment interpreter
 VENV_PYTHON := .venv/bin/python
@@ -39,7 +40,7 @@ check-format: install
 
 .PHONY: update-requirements
 update-requirements:
-	docker run --rm -i --pull always ghcr.io/open-webui/open-webui:$(OPEN_WEBUI_VERSION) pip freeze > requirements-openwebui.txt
+	docker run --rm -i --pull always $(OPEN_WEBUI_IMAGE) pip freeze > requirements-openwebui.txt
 	$(SED) -i 's/\+cpu//g' requirements-openwebui.txt
 
 .PHONY: check-requirements
@@ -48,4 +49,4 @@ check-requirements: update-requirements
 
 .PHONY: print-python-version
 print-python-version:
-	docker run --rm -it ghcr.io/open-webui/open-webui:$(OPEN_WEBUI_VERSION) python --version
+	docker run --rm -it $(OPEN_WEBUI_IMAGE) python --version
