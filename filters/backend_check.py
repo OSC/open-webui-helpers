@@ -49,23 +49,28 @@ class Filter:
         model = __model__.get("id") if __model__ else body.get("model", "unknown")
         metric_model = model.replace("/", "-")
         user_name = __user__.get("name", "unknown") if __user__ else "anonymous"
+        backend_url = None
+
         values = await Config.get_many(
             "openai.api_base_urls", "openai.api_keys", "openai.api_configs"
         )
         backends = values.get("openai.api_base_urls") or []
         api_keys = values.get("openai.api_keys") or []
         api_configs = values.get("openai.api_configs") or {}
-        backend_url = None
+
         if idx is not None and len(backends) > 0:
             backend_url = backends[idx]
         else:
-            self.logger.bind(model_metadata=__model__).error(
-                "Unable to determine model index."
-            )
+            self.logger.bind(
+                model_metadata=__model__,
+                user=user_name,
+                model=metric_model,
+            ).error("Unable to determine model index.")
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Unable to determine backend URL",
             )
+
         unavailable = HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="The AI backend is temporarily unavailable. Please try again later.",
@@ -95,6 +100,14 @@ class Filter:
         async with httpx.AsyncClient() as client:
             r = await client.get(f"{backend_url}/models", headers=headers)
             if not r.is_success:
+                self.logger.bind(
+                    user=user_name,
+                    model=metric_model,
+                    backend=backend_url,
+                    status_code=r.status_code,
+                ).error(
+                    f"Backend models query failed: status={r.status_code} backend={backend_url}"
+                )
                 raise unavailable
             models = r.json()
 
@@ -130,8 +143,13 @@ class Filter:
             should_wait = True
             self.logger.debug(f"User {user_name} is a wait user, waiting")
         if not should_wait:
-            self.logger.debug(
-                f"{self.valves.wait_header} header is not true and not a wait user, skip wait, raise unavailable: wait-header={wait}"
+            self.logger.bind(
+                user=user_name,
+                model=metric_model,
+                backend=backend_url,
+                wait_header=wait,
+            ).debug(
+                f"{self.valves.wait_header} header is not true and not a wait user, skip wait, raise unavailable"
             )
             raise unavailable
 
@@ -143,6 +161,16 @@ class Filter:
             async with httpx.AsyncClient() as client:
                 r = await client.get(f"{backend_url}/models", headers=headers)
                 if not r.is_success:
+                    self.logger.bind(
+                        user=user_name,
+                        model=metric_model,
+                        backend=backend_url,
+                        attempt=attempt,
+                        retries=retries,
+                        status_code=r.status_code,
+                    ).error(
+                        f"Backend models query failed during wait: status={r.status_code} backend={backend_url}"
+                    )
                     raise unavailable
                 wait_models = r.json()
             if len(wait_models.get("data", [])) > 0:
@@ -161,5 +189,9 @@ class Filter:
             self.logger.debug(f"Waiting {delay} seconds before retrying...")
             await asyncio.sleep(delay)
 
-        self.logger.bind(backend=backend_url).error("Model wait timed out")
+        self.logger.bind(
+            user=user_name,
+            model=metric_model,
+            backend=backend_url,
+        ).error("Model wait timed out")
         raise unavailable
