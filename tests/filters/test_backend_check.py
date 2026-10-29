@@ -32,7 +32,7 @@ async def test_inlet_models_found_success(httpx_mock, mocker):
     # Mock Config.get_many to return backends, api_keys, and api_configs
     Config.get_many = AsyncMock(
         return_value={
-            "openai.api_base_urls": ["http://backend.example.com"],
+            "openai.api_base_urls": ["http://backend.svc.cluster.local"],
             "openai.api_keys": [],
             "openai.api_configs": {},
         }
@@ -40,7 +40,7 @@ async def test_inlet_models_found_success(httpx_mock, mocker):
 
     # Mock httpx client to return models (success)
     httpx_mock.add_response(
-        url="http://backend.example.com/models",
+        url="http://backend.svc.cluster.local/models",
         method="GET",
         json={"data": [{"id": "gpt-4"}]},
         status_code=200,
@@ -104,7 +104,7 @@ async def test_inlet_model_not_found_wait_enabled_then_found(
     # Mock Config.get_many to return backends, api_keys, and api_configs
     Config.get_many = AsyncMock(
         return_value={
-            "openai.api_base_urls": ["http://backend.example.com"],
+            "openai.api_base_urls": ["http://backend.svc.cluster.local"],
             "openai.api_keys": [],
             "openai.api_configs": {},
         }
@@ -114,13 +114,13 @@ async def test_inlet_model_not_found_wait_enabled_then_found(
     # First call: no models (pending request)
     # Second call (after short wait): models found
     httpx_mock.add_response(
-        url="http://backend.example.com/models",
+        url="http://backend.svc.cluster.local/models",
         method="GET",
         json={"data": []},  # No models - pending request
         status_code=200,
     )
     httpx_mock.add_response(
-        url="http://backend.example.com/models",
+        url="http://backend.svc.cluster.local/models",
         method="GET",
         json={"data": [{"id": "gpt-4"}]},  # Models found after wait
         status_code=200,
@@ -202,7 +202,7 @@ async def test_inlet_model_not_found_oscchat_user_without_wait_header(
     # Mock Config.get_many to return backends, api_keys, and api_configs
     Config.get_many = AsyncMock(
         return_value={
-            "openai.api_base_urls": ["http://backend.example.com"],
+            "openai.api_base_urls": ["http://backend.svc.cluster.local"],
             "openai.api_keys": [],
             "openai.api_configs": {},
         }
@@ -212,13 +212,13 @@ async def test_inlet_model_not_found_oscchat_user_without_wait_header(
     # First call: no models (pending request)
     # Second call (after short wait): models found
     httpx_mock.add_response(
-        url="http://backend.example.com/models",
+        url="http://backend.svc.cluster.local/models",
         method="GET",
         json={"data": []},  # No models - pending request
         status_code=200,
     )
     httpx_mock.add_response(
-        url="http://backend.example.com/models",
+        url="http://backend.svc.cluster.local/models",
         method="GET",
         json={"data": [{"id": "gpt-4"}]},  # Models found after wait
         status_code=200,
@@ -296,7 +296,7 @@ async def test_inlet_model_not_found_wait_disabled_raises_exception(httpx_mock, 
     # Mock Config.get_many to return backends, api_keys, and api_configs
     Config.get_many = AsyncMock(
         return_value={
-            "openai.api_base_urls": ["http://backend.example.com"],
+            "openai.api_base_urls": ["http://backend.svc.cluster.local"],
             "openai.api_keys": [],
             "openai.api_configs": {},
         }
@@ -305,7 +305,7 @@ async def test_inlet_model_not_found_wait_disabled_raises_exception(httpx_mock, 
     # Mock httpx client responses:
     # First call: no models (pending request)
     httpx_mock.add_response(
-        url="http://backend.example.com/models",
+        url="http://backend.svc.cluster.local/models",
         method="GET",
         json={"data": []},  # No models
         status_code=200,
@@ -370,7 +370,7 @@ async def test_inlet_model_not_found_wait_enabled_then_not_found_raises_exceptio
     # Mock Config.get_many to return backends, api_keys, and api_configs
     Config.get_many = AsyncMock(
         return_value={
-            "openai.api_base_urls": ["http://backend.example.com"],
+            "openai.api_base_urls": ["http://backend.svc.cluster.local"],
             "openai.api_keys": [],
             "openai.api_configs": {},
         }
@@ -380,7 +380,7 @@ async def test_inlet_model_not_found_wait_enabled_then_not_found_raises_exceptio
     # First call: no models (pending request)
     # Remaining calls: still no models (wait timeout)
     httpx_mock.add_response(
-        url="http://backend.example.com/models",
+        url="http://backend.svc.cluster.local/models",
         method="GET",
         json={"data": []},  # No models
         status_code=200,
@@ -388,7 +388,7 @@ async def test_inlet_model_not_found_wait_enabled_then_not_found_raises_exceptio
     # Add responses for the wait loop (3 retries for 30 second wait duration)
     for _ in range(3):
         httpx_mock.add_response(
-            url="http://backend.example.com/models",
+            url="http://backend.svc.cluster.local/models",
             method="GET",
             json={"data": []},  # Still no models
             status_code=200,
@@ -453,7 +453,7 @@ async def test_inlet_query_models_fails_raises_exception(httpx_mock):
     # Mock Config.get_many to return backends, api_keys, and api_configs
     Config.get_many = AsyncMock(
         return_value={
-            "openai.api_base_urls": ["http://backend.example.com"],
+            "openai.api_base_urls": ["http://backend.svc.cluster.local"],
             "openai.api_keys": [],
             "openai.api_configs": {},
         }
@@ -461,7 +461,7 @@ async def test_inlet_query_models_fails_raises_exception(httpx_mock):
 
     # Mock httpx client to return 500 error on models query
     httpx_mock.add_response(
-        url="http://backend.example.com/models",
+        url="http://backend.svc.cluster.local/models",
         method="GET",
         status_code=500,
         text="Internal Server Error",
@@ -515,7 +515,7 @@ async def test_inlet_wait_loop_models_query_fails(httpx_mock, caplog, mocker):
     # Mock Config.get_many to return backends, api_keys, and api_configs
     Config.get_many = AsyncMock(
         return_value={
-            "openai.api_base_urls": ["http://backend.example.com"],
+            "openai.api_base_urls": ["http://backend.svc.cluster.local"],
             "openai.api_keys": [],
             "openai.api_configs": {},
         }
@@ -526,20 +526,20 @@ async def test_inlet_wait_loop_models_query_fails(httpx_mock, caplog, mocker):
     # Second call: GET /models - still no models
     # Third call: GET /models - fails with 500 error (this is the wait loop failure)
     httpx_mock.add_response(
-        url="http://backend.example.com/models",
+        url="http://backend.svc.cluster.local/models",
         method="GET",
         json={"data": []},  # No models
         status_code=200,
     )
     httpx_mock.add_response(
-        url="http://backend.example.com/models",
+        url="http://backend.svc.cluster.local/models",
         method="GET",
         json={"data": []},  # No models
         status_code=200,
     )
     # This call fails - covers the wait loop's raise unavailable
     httpx_mock.add_response(
-        url="http://backend.example.com/models",
+        url="http://backend.svc.cluster.local/models",
         method="GET",
         status_code=500,
         text="Internal Server Error",
@@ -608,7 +608,7 @@ async def test_inlet_without_url_idx(mocker, caplog):
 
     Config.get_many = AsyncMock(
         return_value={
-            "openai.api_base_urls": ["http://backend.example.com"],
+            "openai.api_base_urls": ["http://backend.svc.cluster.local"],
             "openai.api_keys": [],
             "openai.api_configs": {},
         }
@@ -667,7 +667,7 @@ async def test_inlet_with_api_key_and_empty_configs_defaults_to_bearer(
     # Mock Config.get_many to return backends, api_keys (with value), and empty api_configs
     Config.get_many = AsyncMock(
         return_value={
-            "openai.api_base_urls": ["http://backend.example.com"],
+            "openai.api_base_urls": ["http://backend.svc.cluster.local"],
             "openai.api_keys": ["test-api-key-123"],
             "openai.api_configs": {},  # Empty dict - should default to bearer
         }
@@ -675,7 +675,7 @@ async def test_inlet_with_api_key_and_empty_configs_defaults_to_bearer(
 
     # Mock httpx client to return models (success)
     httpx_mock.add_response(
-        url="http://backend.example.com/models",
+        url="http://backend.svc.cluster.local/models",
         method="GET",
         json={"data": [{"id": "gpt-4"}]},
         status_code=200,
@@ -701,6 +701,59 @@ async def test_inlet_with_api_key_and_empty_configs_defaults_to_bearer(
 
     # Verify Bearer token authentication was logged
     assert "Bearer token authentication enabled" in caplog.text
+
+
+async def test_inlet_skip_non_local_backend(httpx_mock, caplog):
+    """Test inlet skips backend check for non-local models (no svc.cluster.local in URL)"""
+    # Set up mock request
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/api/v1/chat",
+        "headers": [(b"host", b"example.com")],
+    }
+    request = Request(scope=scope)
+
+    # Set up metadata (not from WebUI)
+    metadata = {"interface": "api"}
+
+    # Set up model data with urlIdx
+    model_data = {"id": "gpt-4", "urlIdx": 0}
+
+    # Create filter instance
+    filter_instance = backend_check.Filter()
+
+    # Test body
+    body = {"model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}]}
+
+    # Mock Config.get_many to return backends with external URL (no svc.cluster.local)
+    Config.get_many = AsyncMock(
+        return_value={
+            "openai.api_base_urls": ["https://api.external-provider.com/v1"],
+            "openai.api_keys": [],
+            "openai.api_configs": {},
+        }
+    )
+
+    # Call inlet - should return body immediately without making HTTP request
+    with caplog.at_level("DEBUG"):
+        result = await filter_instance.inlet(
+            body=body,
+            __user__=None,
+            __metadata__=metadata,
+            __request__=request,
+            __model__=model_data,
+        )
+
+    # Verify the result is the same as the input body
+    assert result == body
+
+    # Verify NO HTTP requests were made (backend check was skipped)
+    requests = httpx_mock.get_requests()
+    assert len(requests) == 0
+
+    # Verify debug log message about skipping non-local model
+    assert "Skip backend check for non-local model" in caplog.text
 
 
 async def test_inlet_with_api_key_and_bearer_auth_type(httpx_mock, caplog):
@@ -729,7 +782,7 @@ async def test_inlet_with_api_key_and_bearer_auth_type(httpx_mock, caplog):
     # Mock Config.get_many to return backends, api_keys, and api_configs with explicit bearer auth
     Config.get_many = AsyncMock(
         return_value={
-            "openai.api_base_urls": ["http://backend.example.com"],
+            "openai.api_base_urls": ["http://backend.svc.cluster.local"],
             "openai.api_keys": ["explicit-bearer-key-456"],
             "openai.api_configs": {
                 "0": {"auth_type": "bearer"}
@@ -739,7 +792,7 @@ async def test_inlet_with_api_key_and_bearer_auth_type(httpx_mock, caplog):
 
     # Mock httpx client to return models (success)
     httpx_mock.add_response(
-        url="http://backend.example.com/models",
+        url="http://backend.svc.cluster.local/models",
         method="GET",
         json={"data": [{"id": "gpt-4"}]},
         status_code=200,
