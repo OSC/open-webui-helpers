@@ -66,6 +66,11 @@ class Filter:
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Unable to determine backend URL",
             )
+        if "svc.cluster.local" not in backend_url:
+            self.logger.bind(model=model, backend=backend_url).debug(
+                "Skip backend check for non-local model"
+            )
+            return body
         unavailable = HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="The AI backend is temporarily unavailable. Please try again later.",
