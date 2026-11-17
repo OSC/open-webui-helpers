@@ -9,6 +9,7 @@ headers = {
     'Authorization': f'Bearer {os.getenv("WEBUI_TOKEN")}',
     'Content-Type': 'application/json'
 }
+version = os.getenv('VERSION')
 FUNC_TYPES = {
     'filters': 'filter',
 }
@@ -26,6 +27,9 @@ for filepath in glob.glob('filters/*.py'):
         'id': func_id,
         'name': func_id,
         'type': func_type,
+        'meta': {
+            'description': f"{func_id} version={version}",
+        },
         'content': code_content
     }
     functions.append(function)

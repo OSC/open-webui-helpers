@@ -47,5 +47,6 @@ jobs:
         env:
           WEBUI_URL: https://${{ github.ref_type == 'tag' && secrets.OPEN_WEBUI_HOST_PROD || secrets.OPEN_WEBUI_HOST_TEST }}
           WEBUI_TOKEN: ${{ github.ref_type == 'tag' && secrets.OPEN_WEBUI_KEY_PROD || secrets.OPEN_WEBUI_KEY_TEST }}
+          VERSION: ${{ github.ref_type == 'tag' && github.ref_name || github.sha }}
         run: |
           scripts/sync-filters.py
