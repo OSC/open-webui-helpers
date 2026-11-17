@@ -81,5 +81,16 @@ response = requests.post(
 )
 
 if response.status_code not in [200, 201]:
-    print(f'Failed to sync functions: {response.text}')
+    # Parse and clean the error response
+    error_data = response.json()
+    if 'detail' in error_data and isinstance(error_data['detail'], list):
+        # Remove 'input' key from each item in detail array
+        cleaned_detail = []
+        for item in error_data['detail']:
+            cleaned_item = {k: v for k, v in item.items() if k != 'input'}
+            cleaned_detail.append(cleaned_item)
+        error_data['detail'] = cleaned_detail
+        print(f'Failed to sync functions: {error_data}')
+    else:
+        print(f'Failed to sync functions: {error_data}')
     exit(1)
