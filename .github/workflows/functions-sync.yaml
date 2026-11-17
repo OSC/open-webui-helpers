@@ -9,7 +9,9 @@ on:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
     steps:
       - name: Clone the code
         uses: actions/checkout@v7
@@ -18,3 +20,10 @@ jobs:
         with:
           python-version: '3.12.16'
           cache: 'pip'
+
+      - name: Deploy via Python Script
+        env:
+          WEBUI_URL: https://${{ github.ref_type == 'tag' && secrets.OPEN_WEBUI_HOST_PROD || secrets.OPEN_WEBUI_HOST_TEST }}
+          WEBUI_TOKEN: ${{ github.ref_type == 'tag' && secrets.OPEN_WEBUI_KEY_PROD || secrets.OPEN_WEBUI_KEY_TEST }}
+        run: |
+          scripts/sync-filters.py
