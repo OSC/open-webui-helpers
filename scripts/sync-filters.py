@@ -9,11 +9,15 @@ headers = {
     'Authorization': f'Bearer {os.getenv("WEBUI_TOKEN")}',
     'Content-Type': 'application/json'
 }
+FUNC_TYPES = {
+    'filters': 'filter',
+}
 
 functions = []
 for filepath in glob.glob('filters/*.py'):
     filename = os.path.basename(filepath)
     func_id = filename.replace('.py', '')
+    func_type = FUNC_TYPES[os.path.basename(os.path.dirname(filepath))]
     if func_id == "__init__":
         continue
     with open(filepath, 'r') as f:
@@ -21,6 +25,7 @@ for filepath in glob.glob('filters/*.py'):
     function = {
         'id': func_id,
         'name': func_id,
+        'type': func_type,
         'content': code_content
     }
     functions.append(function)

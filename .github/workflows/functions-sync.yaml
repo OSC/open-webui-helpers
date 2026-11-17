@@ -6,7 +6,17 @@ on:
       - main
     tags:
       - '*'
+    paths:
+      - filters/**.py
+      - scripts/**.py
+      - requirements*.txt
+      - .github/workflows/functions-sync.yaml
   pull_request:
+      paths:
+      - filters/**.py
+      - scripts/**.py
+      - requirements*.txt
+      - .github/workflows/functions-sync.yaml
 
 jobs:
   sync:
