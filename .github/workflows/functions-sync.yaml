@@ -25,6 +25,9 @@ jobs:
           python-version: '3.12.16'
           cache: 'pip'
 
+      - name: Install dependencies
+        run: make install
+
       - name: Wait for Test Workflow
         uses: ArcticLampyrid/action-wait-for-workflow@v1
         with:
