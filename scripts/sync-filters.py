@@ -43,6 +43,19 @@ for filepath in glob.glob('filters/*.py'):
     # Preserve created_at from existing function, or use current time if new
     created_at = created_at_map.get(func_id, int(time.time()))
 
+    # Query existing valves only if function already exists
+    valves = {}
+    if func_id in created_at_map:
+        print(f"Fetching valves for {func_id}...")
+        response = requests.get(
+            f'{url}/api/v1/functions/id/{func_id}/valves',
+            headers=headers
+        )
+        if response.status_code not in [200, 201]:
+            print(f'Failed to fetch valves for {func_id}: {response.text}')
+            exit(1)
+        valves = response.json()
+
     function = {
         'id': func_id,
         'name': func_id,
@@ -53,6 +66,7 @@ for filepath in glob.glob('filters/*.py'):
         'content': code_content,
         'created_at': created_at,
         'updated_at': int(time.time()),
+        'valves': valves,
     }
     functions.append(function)
 
