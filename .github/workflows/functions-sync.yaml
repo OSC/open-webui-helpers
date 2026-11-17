@@ -1,17 +1,21 @@
 name: Sync Functions to Open WebUI
 
 on:
-  workflow_run:
-    workflows: ["Lint and Test"]
-    types:
-      - completed
+  push:
+    branches:
+      - main
+    tags:
+      - '*'
+  pull_request:
 
 jobs:
   sync:
     runs-on: ubuntu-latest
     if: >
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_repository.full_name == github.repository
+      github.repository == 'OSC/open-webui-helpers'
+    permissions:
+      actions: read
+      checks: read
     steps:
       - name: Clone the code
         uses: actions/checkout@v7
@@ -20,6 +24,11 @@ jobs:
         with:
           python-version: '3.12.16'
           cache: 'pip'
+
+      - name: Wait for Test Workflow
+        uses: ArcticLampyrid/action-wait-for-workflow@v1
+        with:
+          workflow: test.yaml
 
       - name: Deploy via Python Script
         env:
