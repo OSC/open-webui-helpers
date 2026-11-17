@@ -25,7 +25,7 @@ for filepath in glob.glob('filters/*.py'):
     functions.append(function)
 
 payload = {
-    functions: functions,
+    'functions': functions,
 }
 print("Syncing functions")
 response = requests.post(
