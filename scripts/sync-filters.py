@@ -20,6 +20,7 @@ for filepath in glob.glob('filters/*.py'):
         code_content = f.read()
     function = {
         'id': func_id,
+        'name': func_id,
         'content': code_content
     }
     functions.append(function)
