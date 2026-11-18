@@ -20,3 +20,9 @@ Install dependencies:
 ```
 make install
 ```
+
+## Release process
+
+Pull requests will sync functions to the test Open WebUI at OSC.
+
+Tags will sync to production.  Generate tags on the Releases page of Github.
