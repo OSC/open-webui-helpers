@@ -19,6 +19,7 @@ on:
       - Makefile
       - requirements*.txt
       - .github/workflows/functions-sync.yaml
+  workflow_dispatch:
 
 jobs:
   sync:
@@ -26,7 +27,7 @@ jobs:
     if: >
       github.repository == 'OSC/open-webui-helpers'
     permissions:
-      actions: read
+      actions: write
       checks: read
     steps:
       - name: Clone the code
@@ -39,6 +40,14 @@ jobs:
 
       - name: Install dependencies
         run: make install
+
+      - name: Trigger Test Workflow
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run test.yaml \
+            --ref ${{ github.ref_name }} \
 
       - name: Wait for Test Workflow
         uses: ArcticLampyrid/action-wait-for-workflow@v1
