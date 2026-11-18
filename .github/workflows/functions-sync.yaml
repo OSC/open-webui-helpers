@@ -9,12 +9,14 @@ on:
     paths:
       - filters/**.py
       - scripts/**.py
+      - Makefile
       - requirements*.txt
       - .github/workflows/functions-sync.yaml
   pull_request:
       paths:
       - filters/**.py
       - scripts/**.py
+      - Makefile
       - requirements*.txt
       - .github/workflows/functions-sync.yaml
 
