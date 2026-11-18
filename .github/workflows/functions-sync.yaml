@@ -43,10 +43,20 @@ jobs:
         with:
           workflow: test.yaml
 
-      - name: Deploy via Python Script
+      - name: Sync functions (test)
+        if: github.ref_type != 'tag'
         env:
-          WEBUI_URL: https://${{ github.ref_type == 'tag' && secrets.OPEN_WEBUI_HOST_PROD || secrets.OPEN_WEBUI_HOST_TEST }}
-          WEBUI_TOKEN: ${{ github.ref_type == 'tag' && secrets.OPEN_WEBUI_KEY_PROD || secrets.OPEN_WEBUI_KEY_TEST }}
-          VERSION: ${{ github.ref_type == 'tag' && github.ref_name || github.sha }}
+          WEBUI_URL: https://${{ secrets.OPEN_WEBUI_HOST_TEST }}
+          WEBUI_TOKEN: ${{ secrets.OPEN_WEBUI_KEY_TEST }}
+          VERSION: ${{ github.sha }}
         run: |
-          scripts/sync-filters.py
+          scripts/sync-functions.py
+
+      - name: Sync functions (prod)
+        if: github.ref_type == 'tag'
+        env:
+          WEBUI_URL: https://${{ secrets.OPEN_WEBUI_HOST_PROD }}
+          WEBUI_TOKEN: ${{ secrets.OPEN_WEBUI_KEY_PROD }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          scripts/sync-functions.py
